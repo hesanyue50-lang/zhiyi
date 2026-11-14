@@ -1,0 +1,23 @@
+# 构建产物（APK 走 GitHub Release，不进 git 历史）
+build/
+app/build/
+*.apk
+*.aab
+*.ap_
+*.log
+
+# Gradle / IDE
+.gradle/
+.idea/
+*.iml
+captures/
+.cxx/
+
+# 本地配置（sdk 路径、签名口令）
+local.properties
+*.jks
+*.keystore
+
+# 系统
+.DS_Store
+Thumbs.db
