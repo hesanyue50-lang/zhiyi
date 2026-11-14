@@ -1,8 +1,20 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// 签名口令放用户级 gradle.properties（~/.gradle/gradle.properties），不进仓库。
+// 读不到就回落 debug 签名——保证别人 clone 下来也能编译，只是包名签名不同。
+val signProps = Properties().apply {
+    val f = File(System.getProperty("user.home"), ".gradle/gradle.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val storePath = signProps.getProperty("ZHIYI_STORE_FILE").orEmpty()
+val hasReleaseKey = storePath.isNotBlank() && File(storePath).exists()
 
 android {
     namespace = "app.zhiyi"
@@ -12,8 +24,8 @@ android {
         applicationId = "app.zhiyi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 163
-        versionName = "10.80"
+        versionCode = 164
+        versionName = "10.81"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     lint {
@@ -21,12 +33,24 @@ android {
         abortOnError = false
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = File(storePath)
+                storePassword = signProps.getProperty("ZHIYI_STORE_PASSWORD")
+                keyAlias = signProps.getProperty("ZHIYI_KEY_ALIAS")
+                keyPassword = signProps.getProperty("ZHIYI_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // 先不开 R8（避免 Shizuku 反射/Compose 被裁），仅去掉 debuggable —— 这一步就能明显提速
             isMinifyEnabled = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            // 有固定 keystore 就用它：换机器重编签名不变，用户能覆盖升级
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
     compileOptions {
