@@ -1,0 +1,42 @@
+知忆 · 第三方素材许可
+============================================================
+
+【桌面宠物立绘 · 鲸鱼娘（deepseek 皮肤）】
+
+素材来源：https://github.com/AIR-pixel/deepseek-whale-maid-pet
+许可协议：Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+          International (CC BY-NC-SA 4.0)
+协议全文：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-hans
+协议摘要：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
+
+署名链（完整保留）：
+
+  原创角色「溟月」            上善无形                    2025.06
+      └─ 以 CC BY-NC-SA 4.0 开放二创
+
+  女仆装 + DeepSeek 元素二创   ZipZipPipe                  2026.04
+      └─ 基于上述原创角色
+
+  桌宠立绘素材                 keleus/deepseek-pet         MIT（仅其代码部分）
+      └─ https://github.com/keleus/deepseek-pet
+
+  桌宠程序与素材再加工          air / AIR-pixel             2026.09
+      └─ https://github.com/AIR-pixel/deepseek-whale-maid-pet
+
+使用条件：
+  1. 署名（BY）—— 保留以上完整署名链与许可名称
+  2. 非商业（NC）—— 不得用于盈利目的。若本 App 涉及付费、
+     广告分成、打赏、周边等商业行为，须先取得权利人授权或更换素材
+  3. 相同方式共享（SA）—— 再创作的派生素材需以同一协议开放
+
+------------------------------------------------------------
+
+【桌面宠物立绘 · 爱莉希雅 Q 版（默认真皮肤）】
+
+素材源自网络同人二创（B 站「爱莉希雅像素风鼠标指针」包）。
+仅作个人使用；如需商用请自行取得原作者授权。
+
+------------------------------------------------------------
+
+【字体 / 图标】
+Android 系统默认字体，Material Icons（Apache License 2.0）。
