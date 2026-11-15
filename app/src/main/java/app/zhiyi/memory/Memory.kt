@@ -420,6 +420,12 @@ class MemoryEngine(private val db: Db, private val cfg: CfgData) {
         val pending = db.countAfter(thread, upTo)
         if (pending >= cfg.summarizeEvery) {
             summarize(pid, thread, p, cheap, embed)
+            // 摘要落库之后才压缩原文：这部分内容已经被 summary 顶上了，
+            // 留着的原文只是占存储。摘要失败就不动，绝不因为省空间丢内容。
+            val dropped = runCatching { db.compressBySummary(thread, pid) }.getOrDefault(0)
+            if (dropped > 0) {
+                android.util.Log.i("ZhiYi", "压缩 $thread：摘要覆盖后清掉 $dropped 条原文")
+            }
         }
 
         // ---- 情绪更新：每次对话后微调她的心情（语气 + 主动频率都受它影响）----
