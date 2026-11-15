@@ -28,6 +28,15 @@ object StickerStore {
         }.getOrDefault(emptyList()).filter { File(dir(ctx), it).exists() }
     }
 
+    /** 把一个新文件名登记进索引（联网抓回来的图用这条） */
+    fun adopt(ctx: Context, name: String) {
+        val index = list(ctx).toMutableList()
+        if (!index.contains(name)) {
+            index.add(name)
+            saveIndex(ctx, index)
+        }
+    }
+
     private fun saveIndex(ctx: Context, names: List<String>) {
         Db.get(ctx).put(KEY, JSONArray(names).toString())
     }
