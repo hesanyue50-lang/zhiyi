@@ -131,7 +131,7 @@ fun CompanionScreen(
                     status = if (qqOn) qqState else "未接入",
                     statusOk = QqBot.anyRunning(),
                     desc = if (qqOn) {
-                        "${qqAccounts.count { it.enabled && it.ready }} 个机器人 · ${qqAccounts.sumOf { it.whitelist.size }} 人在白名单"
+                        "${qqAccounts.count { it.enabled && it.ready }} 个机器人 · ${qqAccounts.sumOf { it.people.size }} 人 · ${qqAccounts.sumOf { it.groups.size }} 群"
                     } else "接上以后，不用打开 App 也能和她聊",
                     checked = qqOn,
                     onToggle = { v ->
