@@ -22,6 +22,8 @@ data class QqAccount(
     /** 允许对话的 openid 列表；空 = 谁都不理，避免陌生人一上来就能聊 */
     val whitelist: List<String> = emptyList(),
     val enabled: Boolean = false,
+    /** 开了以后，主动发话发到群里（白名单里的群），而不是私聊 */
+    val groupProactive: Boolean = false,
 ) {
     val id: String get() = appId
     val ready: Boolean get() = appId.isNotBlank() && secret.isNotBlank()
@@ -49,6 +51,7 @@ object QqAccounts {
                     personaId = o.optString("personaId"),
                     whitelist = wl,
                     enabled = o.optBoolean("enabled", false),
+                    groupProactive = o.optBoolean("groupProactive", false),
                 )
             )
         }
@@ -65,6 +68,7 @@ object QqAccounts {
                     .put("personaId", a.personaId)
                     .put("whitelist", JSONArray(a.whitelist))
                     .put("enabled", a.enabled)
+                    .put("groupProactive", a.groupProactive)
             )
         }
         db.put(KEY, arr.toString())
