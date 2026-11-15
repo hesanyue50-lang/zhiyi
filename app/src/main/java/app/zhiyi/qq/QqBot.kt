@@ -3,6 +3,8 @@ package app.zhiyi.qq
 import android.content.Context
 import app.zhiyi.core.ChatCore
 import app.zhiyi.data.Db
+import app.zhiyi.data.modelList
+import app.zhiyi.llm.Llm
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -148,7 +150,21 @@ object QqBot {
                     val warm = acc.inertiaMin > 0 && ts > 0 &&
                         System.currentTimeMillis() - ts < acc.inertiaMin * 60_000L &&
                         who.isNotBlank() && who == mid
-                    if (warm) handleGroup(ctx, acc, d, forced = false)
+                    if (warm) {
+                        handleGroup(ctx, acc, d, forced = false)
+                    } else {
+                        // 没人叫它：攒够几条就评估一次要不要自己插一句。
+                        // 用便宜模型判 YES/NO，判错的代价只是少说一句，比乱插话好。
+                        val db = Db.get(ctx)
+                        val key = "qq_gcount_${acc.appId}_$gid"
+                        val n = db.getNum(key, 0) + 1
+                        if (acc.groupProactive && n >= 10) {
+                            db.putNum(key, 0)
+                            if (chimeIn(ctx, acc, gid, mid)) handleGroup(ctx, acc, d, forced = false)
+                        } else {
+                            db.putNum(key, n)
+                        }
+                    }
                 }
             }
             "C2C_MSG_REJECT" -> { lastError = "用户在 QQ 资料卡关闭了「允许主动发送」" }
@@ -213,7 +229,7 @@ object QqBot {
                 val memScope = "g:$groupId"
                 val speaker = if (memberId.length > 10) "…" + memberId.takeLast(8) else memberId
                 QqAccounts.rememberMember(ctx, acc.appId, memberId)
-                // 点亮惯性窗口：接下来这段时间同一个人说话不用再 @
+                // 点亮/续期惯性窗口：接下来这段时间同一个人说话不用再 @
                 if (acc.inertiaMin > 0) {
                     val dbw = Db.get(ctx)
                     dbw.putNum("qq_active_ts_${acc.appId}_$groupId", System.currentTimeMillis())
@@ -260,6 +276,10 @@ object QqBot {
                 }
                 if (stickerKw != null && seq <= 5) {
                     runCatching { QqMedia.sendRandomStickerGroup(ctx, acc, groupId, msgId, seq, stickerKw) }
+                }
+                // 回过话就续期：一直聊就一直不断，停了自然失效
+                if (acc.inertiaMin > 0) {
+                    db.putNum("qq_active_ts_${acc.appId}_$groupId", System.currentTimeMillis())
                 }
             } catch (e: Throwable) {
                 lastError = e.message ?: e.javaClass.simpleName
@@ -309,6 +329,50 @@ object QqBot {
             out.add("${o.optString("type")} · $who · ${o.optString("content").take(16)}")
         }
         return out
+    }
+
+    /**
+     * 没人叫它时，判断这一句值不值得插。
+     *
+     * 只用便宜模型、只看最近 8 条、只要 YES/NO。
+     * 失败一律当"不插"——多说一句的收益，远小于在不该说话的时候乱插。
+     */
+    private fun chimeIn(ctx: Context, acc: QqAccount, groupId: String, memberId: String): Boolean {
+        val db = Db.get(ctx)
+        val pid = acc.personaId.ifBlank { db.personas().firstOrNull()?.id ?: "" }
+        if (pid.isBlank()) return false
+        val p = db.persona(pid) ?: return false
+        val recent = runCatching { db.recentMsgs("g:$groupId", 8).reversed() }.getOrDefault(emptyList())
+        if (recent.isEmpty()) return false
+        // 最后一条是自己说的就别接着说，连着说会很像刷屏机器人
+        if (recent.last().role == "assistant") return false
+
+        val prov = ChatCore.providerFor(ctx, pid) ?: return false
+        val models = prov.cheapModel.modelList().ifEmpty { prov.chatModel.modelList() }
+        if (models.isEmpty()) return false
+
+        val log = recent.joinToString("\n") { m ->
+            (if (m.role == "user") "" else "【我】") + m.content.take(80)
+        }
+        val sys = "你是「${p.name}」，这个 QQ 群里的一个普通成员。"
+        val ask = """
+群里最近的消息：
+$log
+
+现在要不要插一句话？
+- 有人问了问题、聊到你在乎或懂的事 → YES
+- 只是别人在闲聊、跟你无关 → NO
+- 你刚刚才说过 → NO
+
+只回答 YES 或 NO，别的都不要。
+        """.trim()
+
+        return try {
+            val out = Llm(prov).chat(models.first(), listOf("system" to sys, "user" to ask), 0.2, 8, false)
+            out.trim().uppercase().startsWith("YES")
+        } catch (e: Throwable) {
+            false
+        }
     }
 
     private fun handleC2C(ctx: Context, acc: QqAccount, d: JSONObject) {
