@@ -85,7 +85,7 @@ fun QqSessionsScreen(vm: AppVm, onBack: () -> Unit) {
             ) {
                 item("intro") {
                     Text(
-                        "QQ 里的对话和记忆按人/群分开存，主界面看不到，都在这里。只读。",
+                        "主用户的对话直接进知忆主记忆（App 里能看到）。这里是非主用户的记忆线——他们各自一条，不进主记忆，可以整条删掉。",
                         style = Ty.caption, color = T.textFaint,
                     )
                 }
@@ -101,17 +101,50 @@ fun QqSessionsScreen(vm: AppVm, onBack: () -> Unit) {
                     }
                 }
                 items(stats) { (s, label) ->
+                    var ask by remember { mutableStateOf(false) }
                     GlassCard(Modifier.fillMaxWidth()) {
-                        Column(
-                            Modifier.fillMaxWidth().clickable { opened = s.key }.padding(D.s4)
-                        ) {
-                            Text(label, style = Ty.bodySm, color = T.text)
-                            Spacer(Modifier.height(D.s1))
-                            Text(
-                                "${s.msgs} 条 · 最后 ${agoShort(s.lastTs)}",
-                                style = Ty.caption, color = T.textFaint,
-                            )
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.fillMaxWidth().clickable { opened = s.key }.padding(D.s4),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(label, style = Ty.bodySm, color = T.text)
+                                    Spacer(Modifier.height(D.s1))
+                                    Text(
+                                        "${s.msgs} 条 · 最后 ${agoShort(s.lastTs)}",
+                                        style = Ty.caption, color = T.textFaint,
+                                    )
+                                }
+                                Text(
+                                    "删除", style = Ty.caption, color = T.danger,
+                                    modifier = Modifier.clickable { ask = true }.padding(start = D.s3),
+                                )
+                            }
                         }
+                    }
+                    if (ask) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { ask = false },
+                            title = { Text("删掉这条记忆线？", style = Ty.title3) },
+                            text = {
+                                Text(
+                                    "「${label}」的全部聊天记录和记忆都会删除，不能恢复。",
+                                    style = Ty.caption, color = T.textDim,
+                                )
+                            },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    db.deleteThread(s.key)
+                                    stats = stats.filterNot { it.first.key == s.key }
+                                    ask = false
+                                    vm.toast = "已删除"
+                                }) { Text("删除") }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = { ask = false }) { Text("取消") }
+                            },
+                        )
                     }
                 }
             }
