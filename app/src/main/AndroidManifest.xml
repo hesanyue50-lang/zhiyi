@@ -105,6 +105,14 @@
                 android:value="AI companion proactive messaging" />
         </service>
         <service
+            android:name=".qq.QqService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="QQ bot gateway long connection" />
+        </service>
+        <service
             android:name=".pet.PetService"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density"
