@@ -59,7 +59,7 @@ import kotlinx.coroutines.withContext
  * 陌生人加上机器人并不能直接跟她聊，也不会污染记忆。
  */
 @Composable
-fun QqScreen(vm: AppVm, onBack: () -> Unit) {
+fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
     val ctx = LocalContext.current
     val db = remember { ChatCore.db(ctx) }
 
@@ -199,6 +199,19 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit) {
                                 vm.toast = "已删除"
                             }
                         }
+                    }
+                }
+            }
+
+            item("sessions") {
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().clickable { onOpenSessions() }.padding(D.s4)) {
+                        Text("查看 QQ 会话", style = Ty.bodySm, color = T.text)
+                        Spacer(Modifier.height(D.s1))
+                        Text(
+                            "QQ 里的聊天记录和记忆按人/群分开存，在这里翻。只读。",
+                            style = Ty.caption, color = T.textFaint,
+                        )
                     }
                 }
             }
