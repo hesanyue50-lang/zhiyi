@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +68,9 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
     var accounts by remember { mutableStateOf(QqAccounts.all(db)) }
     var editing by remember { mutableStateOf<QqAccount?>(null) }
     var evtFor by remember { mutableStateOf<QqAccount?>(null) }
+    // 删除要两次确认：第一次问"确定？"，第二次问"真的确定、记忆会没"
+    var delTarget by remember { mutableStateOf<QqAccount?>(null) }
+    var delStep by remember { mutableStateOf(0) }
     var tick by remember { mutableStateOf(0) }
 
     fun reload() { accounts = QqAccounts.all(db); tick++ }
@@ -195,12 +199,7 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
                         Row(horizontalArrangement = Arrangement.spacedBy(D.s3)) {
                             Pill("编辑") { editing = a }
                             Pill("事件") { evtFor = a }
-                            Pill("删除") {
-                                QqBot.stop(a.appId)
-                                QqAccounts.remove(ctx, a.appId)
-                                reload()
-                                vm.toast = "已删除"
-                            }
+                            Pill("删除") { delTarget = a; delStep = 1 }
                         }
                     }
                 }
@@ -237,6 +236,58 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
                 }
             }
         }
+    }
+
+    if (delTarget != null && delStep == 1) {
+        AlertDialog(
+            onDismissRequest = { delTarget = null; delStep = 0 },
+            title = { Text("删除这个机器人？", style = Ty.title3) },
+            text = {
+                Text(
+                    "机器人 ${delTarget!!.appId} 会从列表里移除。\n" +
+                        "这不会删掉它的人格和记忆——只是不再连 QQ。",
+                    style = Ty.caption, color = T.textDim,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { delStep = 2 }) { Text("继续") }
+            },
+            dismissButton = {
+                TextButton(onClick = { delTarget = null; delStep = 0 }) { Text("取消") }
+            },
+        )
+    }
+    if (delTarget != null && delStep == 2) {
+        AlertDialog(
+            onDismissRequest = { delTarget = null; delStep = 0 },
+            title = { Text("再确认一次", style = Ty.title3) },
+            text = {
+                Column {
+                    Text("真的要删掉吗？", style = Ty.bodySm, color = T.text)
+                    Spacer(Modifier.height(D.s2))
+                    Text(
+                        "机器人 ${delTarget!!.appId} 的接入配置、白名单、令牌缓存都会被清掉，" +
+                            "下次要用得重新填 AppID 和 AppSecret。\n\n" +
+                            "对话框里那些「其他人的记忆」不会跟着删——他们各自存在独立的记忆线里，" +
+                            "要清得去「查看 QQ 会话」里删。",
+                        style = Ty.caption, color = T.textDim,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val a = delTarget!!
+                    QqBot.stop(a.appId)
+                    QqAccounts.remove(ctx, a.appId)
+                    delTarget = null; delStep = 0
+                    reload()
+                    vm.toast = "已删除"
+                }) { Text("确认删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { delTarget = null; delStep = 0 }) { Text("算了") }
+            },
+        )
     }
 
     evtFor?.let { a ->
@@ -311,6 +362,7 @@ private fun AccountEditor(
     var groups by remember { mutableStateOf(acc.groups) }
     var groupPro by remember { mutableStateOf(acc.groupProactive) }
     var owners by remember { mutableStateOf(acc.owners) }
+    var inertia by remember { mutableIntStateOf(acc.inertiaMin) }
     var busy by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf("") }
     var manualId by remember { mutableStateOf("") }
@@ -503,6 +555,30 @@ private fun AccountEditor(
                     }
                 }
 
+                // ---- 惯性聊天 ----
+                Spacer(Modifier.height(D.s3))
+                Text("惯性聊天", style = Ty.caption, color = T.textDim)
+                Text(
+                    "@ 过它一次之后，这段时间内**同一个人**接着说话就不用再 @，" +
+                        "像真的聊起来了。换成别人说话还是不理。",
+                    style = Ty.caption, color = T.textFaint,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(D.s2)) {
+                    listOf(0 to "关", 5 to "5 分", 10 to "10 分", 30 to "30 分").forEach { (v, label) ->
+                        Surface(
+                            onClick = { inertia = v },
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(D.rSm),
+                            color = if (inertia == v) T.accent.copy(alpha = 0.18f) else T.track,
+                        ) {
+                            Text(
+                                label, style = Ty.caption,
+                                color = if (inertia == v) T.accent else T.textDim,
+                                modifier = Modifier.padding(horizontal = D.s3, vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
+
                 // ---- 群成员 / 主人 ----
                 val members = remember { if (isNew) emptyList() else QqAccounts.members(db, acc.appId) }
                 if (members.isNotEmpty()) {
@@ -596,6 +672,7 @@ private fun AccountEditor(
                         enabled = acc.enabled,
                         groupProactive = groupPro,
                         owners = owners,
+                        inertiaMin = inertia,
                     )
                 )
                 vm.toast = if (isNew) "已添加" else "已保存"
