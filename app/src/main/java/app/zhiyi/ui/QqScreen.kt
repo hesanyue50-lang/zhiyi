@@ -75,7 +75,7 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(T.bg).statusBarsPadding()) {
         GlassTopBar(
             title = "QQ",
             subtitle = if (accounts.isEmpty()) "还没有机器人" else QqBot.summary(ctx),
@@ -242,6 +242,7 @@ private fun AccountEditor(
     val pending = remember { if (isNew) emptyList() else QqAccounts.pending(db, acc.appId) }
     var whitelist by remember { mutableStateOf(acc.whitelist) }
     var manualId by remember { mutableStateOf("") }
+    var groupPro by remember { mutableStateOf(acc.groupProactive) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -285,6 +286,22 @@ private fun AccountEditor(
                         )
                         Text(p.name, style = Ty.bodySm, color = T.text)
                     }
+                }
+
+                Spacer(Modifier.height(D.s3))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("群聊主动发话", style = Ty.bodySm, color = T.text)
+                        Text(
+                            "开着就发到白名单里的群，而不是私聊。群里聊得多的时候开这个更自然。",
+                            style = Ty.caption, color = T.textFaint,
+                        )
+                    }
+                    Switch(checked = groupPro, onCheckedChange = { groupPro = it })
                 }
 
                 Spacer(Modifier.height(D.s3))
@@ -384,7 +401,7 @@ private fun AccountEditor(
                     ctx,
                     QqAccount(
                         appId = appId, secret = secret, personaId = personaId,
-                        whitelist = whitelist, enabled = acc.enabled,
+                        whitelist = whitelist, enabled = acc.enabled, groupProactive = groupPro,
                     )
                 )
                 vm.toast = if (isNew) "已添加" else "已保存"
