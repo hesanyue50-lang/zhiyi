@@ -65,6 +65,7 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
 
     var accounts by remember { mutableStateOf(QqAccounts.all(db)) }
     var editing by remember { mutableStateOf<QqAccount?>(null) }
+    var evtFor by remember { mutableStateOf<QqAccount?>(null) }
     var tick by remember { mutableStateOf(0) }
 
     fun reload() { accounts = QqAccounts.all(db); tick++ }
@@ -192,6 +193,7 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
                         Spacer(Modifier.height(D.s3))
                         Row(horizontalArrangement = Arrangement.spacedBy(D.s3)) {
                             Pill("编辑") { editing = a }
+                            Pill("事件") { evtFor = a }
                             Pill("删除") {
                                 QqBot.stop(a.appId)
                                 QqAccounts.remove(ctx, a.appId)
@@ -236,6 +238,36 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
         }
     }
 
+    evtFor?.let { a ->
+        val list = remember(a.appId) { QqBot.events(ctx, a.appId) }
+        AlertDialog(
+            onDismissRequest = { evtFor = null },
+            title = { Text("最近收到的事件", style = Ty.title3) },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    if (list.isEmpty()) {
+                        Text(
+                            "一条都没有。说明网关虽然连上了，但平台没把消息推过来——" +
+                                "检查管理端是不是选了 WebSocket 方式、群主有没有给机器人开消息权限。",
+                            style = Ty.caption, color = T.textDim,
+                        )
+                    } else {
+                        Text(
+                            "能看到 GROUP_AT_MESSAGE_CREATE 说明群消息收到了；" +
+                                "如果是别的事件名，把它发给我，我补上处理。",
+                            style = Ty.caption, color = T.textFaint,
+                        )
+                        Spacer(Modifier.height(D.s2))
+                        list.forEach { line ->
+                            Text("· $line", style = Ty.caption, color = T.textDim)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { evtFor = null }) { Text("关闭") } },
+        )
+    }
+
     editing?.let { acc ->
         AccountEditor(
             vm = vm,
@@ -265,12 +297,13 @@ private fun AccountEditor(
     var people by remember { mutableStateOf(acc.people) }
     var groups by remember { mutableStateOf(acc.groups) }
     var groupPro by remember { mutableStateOf(acc.groupProactive) }
+    var owners by remember { mutableStateOf(acc.owners) }
     var busy by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf("") }
     var manualId by remember { mutableStateOf("") }
 
     val personas = remember { db.personas() }
-    val pending = remember { if (isNew) emptyList() else QqAccounts.pending(db, acc.appId) }
+    var pending by remember { mutableStateOf(if (isNew) emptyList() else QqAccounts.pending(db, acc.appId)) }
     val pendingPeople = pending.filterNot { QqAccounts.isGroupKey(it.first) }
     val pendingGroups = pending.filter { QqAccounts.isGroupKey(it.first) }
 
@@ -363,12 +396,18 @@ private fun AccountEditor(
                             Text(
                                 "加入", style = Ty.caption, color = T.ok,
                                 modifier = Modifier.clickable {
+                                    // 立即落库：之前只改草稿，要等点保存才生效，
+                                    // 而待批准又是一次性快照 → 批准完界面还挂着"未批准"
                                     if (g) {
                                         val bare = id.removePrefix("g:")
                                         if (!groups.contains(bare)) groups = groups + bare
+                                        if (!isNew) QqAccounts.addGroup(ctx, acc.appId, bare)
                                     } else {
                                         if (!people.contains(id)) people = people + id
+                                        if (!isNew) QqAccounts.addPerson(ctx, acc.appId, id)
                                     }
+                                    pending = pending.filterNot { it.first == id }
+                                    vm.toast = "已加入"
                                 }
                             )
                         }
@@ -430,6 +469,41 @@ private fun AccountEditor(
                     }
                 }
 
+                // ---- 群成员 / 主人 ----
+                val members = remember { if (isNew) emptyList() else QqAccounts.members(db, acc.appId) }
+                if (members.isNotEmpty()) {
+                    Spacer(Modifier.height(D.s3))
+                    Text("群成员（${members.size}）", style = Ty.caption, color = T.textDim)
+                    Text(
+                        "私聊和群用的是两套 openid，官方没有对应关系，" +
+                            "所以「谁是主人」只能在这里点一次。",
+                        style = Ty.caption, color = T.textFaint,
+                    )
+                    members.forEach { mid ->
+                        val isOwner = owners.contains(mid)
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                (if (isOwner) "★ " else "· ") + "…" + mid.takeLast(8),
+                                style = Ty.caption,
+                                color = if (isOwner) T.accent else T.textDim,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                if (isOwner) "取消主人" else "设为主人",
+                                style = Ty.caption, color = if (isOwner) T.textFaint else T.accent,
+                                modifier = Modifier.clickable {
+                                    owners = if (isOwner) owners - mid else owners + mid
+                                    if (!isNew) QqAccounts.setOwner(ctx, acc.appId, mid, !isOwner)
+                                }
+                            )
+                        }
+                    }
+                }
+
                 // ---- 群主动发话 ----
                 Spacer(Modifier.height(D.s3))
                 Row(
@@ -487,6 +561,7 @@ private fun AccountEditor(
                         mode = if (strict) QqAccount.MODE_STRICT else QqAccount.MODE_OPEN,
                         enabled = acc.enabled,
                         groupProactive = groupPro,
+                        owners = owners,
                     )
                 )
                 vm.toast = if (isNew) "已添加" else "已保存"
