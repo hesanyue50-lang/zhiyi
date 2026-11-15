@@ -39,6 +39,13 @@ data class QqAccount(
      * 只能在 App 里手动标一次。
      */
     val owners: List<String> = emptyList(),
+    /**
+     * 惯性聊天时长（分钟）。0 = 关闭。
+     *
+     * 在群里 @ 过它一次之后，这段时间内**同一个人**接着说话（不再 @）它也会回，
+     * 像真的聊起来了；换成别人说话就还是不理，除非又 @ 它。
+     */
+    val inertiaMin: Int = 10,
 ) {
     companion object {
         const val MODE_OPEN = "open"
@@ -94,6 +101,7 @@ object QqAccounts {
                     },
                     enabled = o.optBoolean("enabled", false),
                     groupProactive = o.optBoolean("groupProactive", false),
+                    inertiaMin = o.optInt("inertiaMin", 10),
                     owners = run {
                         val l = ArrayList<String>()
                         o.optJSONArray("owners")?.let { w ->
@@ -121,6 +129,7 @@ object QqAccounts {
                     .put("enabled", a.enabled)
                     .put("groupProactive", a.groupProactive)
                     .put("owners", JSONArray(a.owners))
+                    .put("inertiaMin", a.inertiaMin)
             )
         }
         db.put(KEY, arr.toString())
