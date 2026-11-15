@@ -143,8 +143,16 @@ object ChatCore {
         }
     }
 
-    suspend fun saveUserMsg(ctx: Context, text: String, images: List<String> = emptyList(), explicitPid: String? = null): String = withContext(Dispatchers.IO) {
-        val pid = explicitPid ?: activePersona(ctx).id
+    suspend fun saveUserMsg(
+        ctx: Context,
+        text: String,
+        images: List<String> = emptyList(),
+        explicitPid: String? = null,
+        /** 记忆隔离维度："" = 本机；"<openid>" = 某个 QQ 用户自己的记忆线 */
+        scope: String = "",
+    ): String = withContext(Dispatchers.IO) {
+        val base = explicitPid ?: activePersona(ctx).id
+        val pid = if (scope.isBlank()) base else "$base#$scope"
         val tk = threadKey(pid, cfg(ctx).chatMode)
         val imgJson = org.json.JSONArray().apply { images.forEach { put(it) } }.toString()
         Db.get(ctx).addMsg(Msg(pid = tk, role = "user", content = text, images = imgJson))
@@ -168,14 +176,25 @@ object ChatCore {
         cancel: (() -> Boolean)? = null,
         task: String? = null,
         explicitPid: String? = null,
+        /** 场景："" 聊天窗口 / "qq" QQ 端（线上打字，和面对面的提示词相反） */
+        scene: String = "",
+        /**
+         * 记忆隔离维度。"" = 这台手机的主人；
+         * 非空（QQ 的 openid）= 这个人有自己独立的一条记忆线：
+         * 消息、事实、摘要、心境、主动搭话计数全部按 pid#scope 分开，
+         * 但人格设定还是共享原来那一份——同一个人格服务多个人，各记各的。
+         */
+        scope: String = "",
     ): String = withContext(Dispatchers.IO) {
         val db = Db.get(ctx)
         val cfg = cfg(ctx)
         val persona = if (explicitPid != null) {
             db.persona(explicitPid) ?: throw LlmException("人格已删除，无法回复")
         } else activePersona(ctx)
-        val pid = persona.id
-        if (pid.isBlank()) throw LlmException("还没有人格")
+        val realPid = persona.id
+        if (realPid.isBlank()) throw LlmException("还没有人格")
+        // pid 从这里往下代表"记忆维度"，persona 仍是原来那个人格
+        val pid = if (scope.isBlank()) realPid else "$realPid#$scope"
 
         val candidates = fallbackCandidates(ctx, pid)
         if (candidates.isEmpty()) throw LlmException("还没配置 API，去设置里填一个")
@@ -189,6 +208,18 @@ object ChatCore {
             val hist = db.recentMsgs(tk, 60)
             val lastUserMsg = hist.lastOrNull { it.role == "user" }
             val lastUser = lastUserMsg?.content ?: ""
+
+            // ---- 收尾闸门：互道晚安会让模型一直答下去，这里直接短路，不调模型 ----
+            // 两个条件同时满足才拦（这轮是纯收尾语 + 她上一条也在收尾），否则正常对话里的"嗯"会被误杀
+            val lastAi = hist.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+            if (ClosingGate.isClosing(lastUser) && ClosingGate.isAiClosing(lastAi)) {
+                val r = ClosingGate.shortReply()
+                db.addMsg(Msg(pid = tk, role = "assistant", content = r))
+                db.putNum("last_assistant_ts_$pid", System.currentTimeMillis())
+                db.putNum("close_streak_$pid", db.getNum("close_streak_$pid", 0) + 1)
+                return@withLock r
+            }
+            db.putNum("close_streak_$pid", 0)
             // 最后一条用户消息带的图 → data URI（多模态模型看得到）
             val imageUris = lastUserMsg?.imageList()
                 ?.mapNotNull { ImageStore.toDataUri(ctx, it) } ?: emptyList()
@@ -203,7 +234,7 @@ object ChatCore {
                 val em = providerFor(ctx, pid)?.embedModel?.modelList()?.firstOrNull()
                 if (em != null) qvec = runCatching { Llm(providerFor(ctx, pid)!!).embed(lastUser, em) }.getOrNull()
             }
-            var msgs = asm.build(pid, tk, persona, hist, qvec)
+            var msgs = asm.build(pid, tk, persona, hist, qvec, scene = scene)
 
             // 真人反应延迟：只给 UI 流式入口（通知直回/主动发话不需要"打字感"）
             if (onDelta != null) {
