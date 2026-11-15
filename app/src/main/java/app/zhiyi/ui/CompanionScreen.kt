@@ -61,7 +61,7 @@ fun CompanionScreen(
 
     val overlayOk = android.provider.Settings.canDrawOverlays(ctx)
 
-    Column(Modifier.fillMaxSize().background(T.bg).statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.padding(start = D.s5, end = D.s5, top = D.s2, bottom = D.s3)) {
             Text("陪伴", style = Ty.display, color = T.text)
             Text("她此刻在不在你身边", style = Ty.caption, color = T.textFaint)
