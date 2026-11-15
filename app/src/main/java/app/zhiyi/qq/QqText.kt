@@ -9,8 +9,21 @@ package app.zhiyi.qq
  */
 object QqText {
 
-    /** 表情包标记：模型在最后单独一行写这个 */
-    private val STICKER_TAG = Regex("\\[(表情包?|贴纸|sticker)]", RegexOption.IGNORE_CASE)
+    /**
+     * 表情标记。两种写法都认：
+     * - `[表情]`        随便来一张
+     * - `[表情 开心]`   按关键词挑（本地有就用本地的，没有就联网搜）
+     */
+    private val STICKER_TAG = Regex(
+        "\\[(?:表情包?|贴纸|sticker)(?:[:：\\s]+([^\\]]{1,12}))?\\]",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** 取出表情关键词；没有表情标记返回 null，`[表情]` 无限定词时返回空串 */
+    fun stickerKeyword(s: String): String? {
+        val m = STICKER_TAG.find(s) ?: return null
+        return m.groupValues.getOrNull(1)?.trim().orEmpty()
+    }
 
     /**
      * 只保留说出口的话。
