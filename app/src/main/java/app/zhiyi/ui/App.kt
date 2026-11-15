@@ -170,7 +170,8 @@ fun ZhiYiApp(vm: AppVm) {
                 k?.startsWith("world:") == true -> WorldScreen(vm, k.removePrefix("world:"), onBack = { sub = null })
                 k?.startsWith("profile:") == true -> ProfileScreen(vm, onBack = { sub = null })
                 k == "clean" -> CleanScreen(vm, onBack = { sub = null })
-                k == "qq" -> QqScreen(vm, onBack = { sub = null })
+                k == "qq" -> QqScreen(vm, onBack = { sub = null }, onOpenSessions = { sub = "qqlog" })
+                k == "qqlog" -> QqSessionsScreen(vm, onBack = { sub = null })
             }
         }
         androidx.compose.animation.AnimatedVisibility(
