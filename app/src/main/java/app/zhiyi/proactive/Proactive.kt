@@ -171,7 +171,7 @@ object Proactive {
             // 全局冷却：不管哪个人格刚说过话，都先等一会儿。
             // 不加这条的话，4 个人格各按自己 15 分钟一轮跑，看起来像排队轮流冒泡。
             val lastAny = db.getNum("pro_last_any_ts", 0)
-            if (lastAny > 0 && System.currentTimeMillis() - lastAny < 40 * 60_000L) return false
+            if (lastAny > 0 && System.currentTimeMillis() - lastAny < 20 * 60_000L) return false
             val lastPro0 = db.getNum("last_proactive_ts_$pid", 0)
             // 首次运行（装好/重装清数据后）只播种时间，不要"打开 App 立刻冒一条"
             if (lastPro0 == 0L) {
