@@ -31,6 +31,14 @@ data class QqAccount(
     val enabled: Boolean = false,
     /** 开了以后，主动发话发到群里（groups 里的群），而不是私聊 */
     val groupProactive: Boolean = false,
+    /**
+     * 群里的"主人"（member_openid）。
+     *
+     * 为什么要单独记：私聊用的是 user_openid，群里用的是 member_openid，
+     * 官方**不提供两者之间的对应关系**，所以没法自动认出"群里这个人就是私聊那个人"，
+     * 只能在 App 里手动标一次。
+     */
+    val owners: List<String> = emptyList(),
 ) {
     companion object {
         const val MODE_OPEN = "open"
@@ -86,6 +94,13 @@ object QqAccounts {
                     },
                     enabled = o.optBoolean("enabled", false),
                     groupProactive = o.optBoolean("groupProactive", false),
+                    owners = run {
+                        val l = ArrayList<String>()
+                        o.optJSONArray("owners")?.let { w ->
+                            for (k in 0 until w.length()) w.optString(k).takeIf { it.isNotBlank() }?.let { l.add(it) }
+                        }
+                        l
+                    },
                 )
             )
         }
@@ -105,6 +120,7 @@ object QqAccounts {
                     .put("mode", a.mode)
                     .put("enabled", a.enabled)
                     .put("groupProactive", a.groupProactive)
+                    .put("owners", JSONArray(a.owners))
             )
         }
         db.put(KEY, arr.toString())
@@ -163,6 +179,39 @@ object QqAccounts {
         val db = Db.get(ctx)
         val a = get(db, appId) ?: return
         upsert(ctx, a.copy(groups = a.groups - groupOpenId))
+    }
+
+    // ---------------------------------------------------------------- 群成员
+
+    /**
+     * 见过面的群成员。私聊和群的 openid 不是一套，没法互相关联，
+     * 所以"谁是我"这件事只能靠这张表在 App 里手点一次。
+     */
+    fun members(db: Db, appId: String): List<String> {
+        val arr = runCatching { JSONArray(db.get("qq_members_$appId", "[]")) }.getOrDefault(JSONArray())
+        val out = ArrayList<String>()
+        for (i in 0 until arr.length()) {
+            val v = arr.optString(i)
+            if (v.isNotBlank()) out.add(v)
+        }
+        return out
+    }
+
+    fun rememberMember(ctx: Context, appId: String, memberId: String) {
+        if (memberId.isBlank()) return
+        val list = members(Db.get(ctx), appId).toMutableList()
+        if (!list.contains(memberId)) {
+            list.add(memberId)
+            while (list.size > 50) list.removeAt(0)
+            Db.get(ctx).put("qq_members_$appId", JSONArray(list).toString())
+        }
+    }
+
+    fun setOwner(ctx: Context, appId: String, memberId: String, owner: Boolean) {
+        val db = Db.get(ctx)
+        val a = get(db, appId) ?: return
+        val next = if (owner) a.owners + memberId else a.owners - memberId
+        upsert(ctx, a.copy(owners = next.distinct()))
     }
 
     // ---------------------------------------------------------------- 待批准
