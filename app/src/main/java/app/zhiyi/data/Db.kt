@@ -261,6 +261,31 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "zhiyi.db", n
     }
 
     /** 清记忆库：删事实/回忆/摘要，聊天记录保留 */
+    /**
+     * 整条记忆线删掉（消息 + 事实 + 往事 + 摘要）。
+     *
+     * 用在 QQ 那边"其他人的记忆"：那些线是按 openid 分的，
+     * 主人在 App 里看不见也不该留着，需要能一键清掉。
+     */
+    fun deleteThread(pid: String) {
+        writableDatabase.execSQL("DELETE FROM msg WHERE pid=?", arrayOf(pid))
+        writableDatabase.execSQL("DELETE FROM fact WHERE pid=?", arrayOf(pid))
+        writableDatabase.execSQL("DELETE FROM episode WHERE pid=?", arrayOf(pid))
+        writableDatabase.execSQL("DELETE FROM summary WHERE pid=?", arrayOf(pid))
+    }
+
+    /** 一条记忆线现在有多少内容 */
+    fun threadSize(pid: String): Pair<Int, Int> {
+        var msgs = 0; var facts = 0
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM msg WHERE pid=?", arrayOf(pid)).use {
+            if (it.moveToNext()) msgs = it.getInt(0)
+        }
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM fact WHERE pid=? AND active=1", arrayOf(pid)).use {
+            if (it.moveToNext()) facts = it.getInt(0)
+        }
+        return msgs to facts
+    }
+
     fun clearMemory(pid: String) {
         writableDatabase.beginTransaction()
         try {
