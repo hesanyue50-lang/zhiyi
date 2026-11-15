@@ -39,7 +39,7 @@ object QqOut {
         val acc = accountFor(db, pid) ?: return false
         // 主动推送是 HTTP 调用，不依赖 WebSocket 长连接——
         // 服务被系统杀掉时照样能发，别因为 isRunning 就把这条路堵死
-        if (acc.groupProactive) return acc.whitelist.any { it.startsWith("g:") }
+        if (acc.groupProactive) return acc.groups.isNotEmpty()
         return QqCommand.openIdFor(db, acc.appId, pid).isNotBlank()
     }
 
@@ -63,11 +63,10 @@ object QqOut {
 
         // 开了"群聊主动发话"就发群：他在群里聊得多，主动找他也该在群里
         if (acc.groupProactive) {
-            val groups = acc.whitelist.filter { it.startsWith("g:") }
-            if (groups.isNotEmpty()) {
-                val g = groups.random()
+            if (acc.groups.isNotEmpty()) {
+                val g = acc.groups.random()
                 return try {
-                    QqApi.sendGroup(ctx, acc, g.removePrefix("g:"), speech.take(400), msgId = null)
+                    QqApi.sendGroup(ctx, acc, g, speech.take(400), msgId = null)
                     db.putNum("qq_last_proactive_ts", System.currentTimeMillis())
                     true
                 } catch (e: Throwable) {
