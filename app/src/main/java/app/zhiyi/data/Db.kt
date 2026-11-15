@@ -169,6 +169,40 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "zhiyi.db", n
         return writableDatabase.insert("msg", null, cv)
     }
 
+    /**
+     * 按摘要压缩一条记忆线。
+     *
+     * 不是"删掉老消息"——那会丢内容。做法是：
+     * 摘要已经覆盖到 upto（summary 表里存着压缩结果），
+     * 那么 upto 之前、并且不在"最近 keep 条"里的原文就可以删了，
+     * 因为读上下文时这部分由摘要顶上。
+     *
+     * 主记忆留 3000 条原文；QQ 那边"其他人"的线留 300 条
+     * （每个群成员/每个群各一条，人一多就是成倍增长）。
+     *
+     * @return 删掉的条数
+     */
+    fun compressBySummary(thread: String, summarizedPid: String, keep: Int = if (thread.contains('#')) 300 else 3000): Int {
+        val sum = latestSummary(summarizedPid, 0) ?: return 0
+        val upto = sum.upto
+        if (upto <= 0) return 0
+        var newest = 0L
+        readableDatabase.rawQuery("SELECT MAX(id) FROM msg WHERE pid=?", arrayOf(thread)).use {
+            if (it.moveToNext()) newest = it.getLong(0)
+        }
+        if (newest <= 0) return 0
+        // 只删"摘要已经覆盖"且"不在最近 keep 条里"的
+        val cut = minOf(upto, newest - keep)
+        if (cut <= 0) return 0
+        var deleted = 0
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM msg WHERE pid=? AND id<=?", arrayOf(thread, cut.toString())).use {
+            if (it.moveToNext()) deleted = it.getInt(0)
+        }
+        if (deleted <= 0) return 0
+        writableDatabase.execSQL("DELETE FROM msg WHERE pid=? AND id<=?", arrayOf(thread, cut.toString()))
+        return deleted
+    }
+
     fun recentMsgs(pid: String, limit: Int): List<Msg> {
         val out = ArrayList<Msg>()
         readableDatabase.rawQuery(
