@@ -395,6 +395,51 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                             },
                         )
                         InnerDivider()
+                        // 渠道按人格存：一个人格可能配了 QQ、另一个没配
+                        val curPid2 = remember { ChatCore.activePersona(ctx).id }
+                        val chKey = "pro_channel_$curPid2"
+                        var chTick by remember { mutableStateOf(0) }
+                        val ch = remember(chTick) { sdb.get(chKey, "auto") }
+                        SegmentRow(
+                            "从哪发",
+                            listOf("自动", "QQ", "App"),
+                            listOf("auto", "qq", "app").indexOf(ch).takeIf { it >= 0 } ?: 0,
+                        ) { i ->
+                            sdb.put(chKey, listOf("auto", "qq", "app")[i]); chTick++
+                        }
+                        Text(
+                            when (ch) {
+                                "qq" -> "只从 QQ 发。发不出去就算了，不会再弹通知。"
+                                "app" -> "只发手机通知，不走 QQ。"
+                                else -> "配了 QQ 就优先从 QQ 发；发不出去再弹通知。"
+                            },
+                            style = Ty.caption, color = T.textFaint,
+                            modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
+                        )
+                        val bindAcc = remember(chTick) {
+                            app.zhiyi.qq.QqAccounts.all(sdb).firstOrNull { it.personaId == curPid2 }
+                        }
+                        if (bindAcc != null && bindAcc.people.isNotEmpty()) {
+                            InnerDivider()
+                            Text(
+                                "谁可以被主动打扰",
+                                style = Ty.caption, color = T.textDim,
+                                modifier = Modifier.padding(start = D.s4, top = D.s2, bottom = D.s1),
+                            )
+                            bindAcc.people.forEach { oid ->
+                                val blocked = app.zhiyi.qq.QqOut.blocked(sdb, curPid2, oid)
+                                SettingRow(
+                                    "…" + oid.takeLast(10),
+                                    if (blocked) "静音，她不会主动找他" else "可以主动找他",
+                                    value = if (blocked) "静音中" else "允许",
+                                    onClick = {
+                                        app.zhiyi.qq.QqOut.setBlocked(ctx, curPid2, oid, !blocked)
+                                        chTick++
+                                    },
+                                )
+                            }
+                        }
+                        InnerDivider()
                         SettingRow(
                             "立即测试",
                             "跳过评分，马上让她发一条（用来确认链路通不通）",
@@ -1008,7 +1053,33 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                 Label("关于", Modifier.padding(start = D.s4, bottom = D.s2))
                 GlassCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(D.s4)) {
-                        Text("知忆 7.9", style = Ty.title3, color = T.text)
+                        // 版本号从 PackageManager 读，别再写死——之前写死过一次就落后了十几版
+                        val verName = remember {
+                            runCatching {
+                                ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+                            }.getOrNull() ?: "?"
+                        }
+                        val verCode = remember {
+                            runCatching {
+                                val i = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+                                @Suppress("DEPRECATION") i.versionCode
+                            }.getOrNull() ?: 0
+                        }
+                        Text("知忆 $verName", style = Ty.title3, color = T.text)
+                        Text(
+                            "构建 $verCode · 本地优先，数据只在这台手机上",
+                            style = Ty.caption, color = T.textFaint
+                        )
+                        Spacer(Modifier.height(D.s3))
+                        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                        SettingRow(
+                            "GitHub",
+                            "源码与更新日志",
+                            value = "打开",
+                            onClick = {
+                                runCatching { uri.openUri("https://github.com/hesanyue50-lang/zhiyi") }
+                            },
+                        )
                         if (vm.daysTogether > 0) {
                             Spacer(Modifier.height(D.s1))
                             Text(
