@@ -90,6 +90,12 @@ class Assembler(private val db: Db, private val cfg: CfgData) {
             }
         }
 
+        // ---- 梗库：对方用了网络流行语就讲清意思，免得她答非所问 ----
+        if (!proactive && userText.isNotBlank()) {
+            val meme = app.zhiyi.data.MemeBank.hint(userText)
+            if (meme.isNotBlank()) sb.append("\n").append(meme).append("\n")
+        }
+
         // ---- 输出格式（稳定，前置利于缓存）----
         val pre = p.sayPrefix.ifBlank { "「" }
         val suf = p.saySuffix.ifBlank { "」" }
