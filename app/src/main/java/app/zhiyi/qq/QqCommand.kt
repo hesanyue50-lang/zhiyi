@@ -15,13 +15,20 @@ import app.zhiyi.data.Db
  */
 object QqCommand {
 
-    /** 记住这个 openid 在跟谁聊，主动发话时用得上（按账号分开记） */
-    fun rememberOpenId(db: Db, appId: String, pid: String, openId: String) {
-        db.put("qq_openid_${appId}_$pid", openId)
-        db.putNum("qq_openid_ts_${appId}_$pid", System.currentTimeMillis())
+    /**
+     * 记住这个会话在跟谁聊，主动发话时用得上。
+     *
+     * **私聊和群分开存**：之前混在一个键里，最后说话的是群就把 private 的目标也覆盖成群 id，
+     * 主动发话会发错地方。
+     */
+    fun rememberOpenId(db: Db, appId: String, pid: String, targetId: String, group: Boolean) {
+        val k = if (group) "qq_group_${appId}_$pid" else "qq_openid_${appId}_$pid"
+        db.put(k, targetId)
+        db.putNum("${k}_ts", System.currentTimeMillis())
     }
 
-    fun openIdFor(db: Db, appId: String, pid: String): String = db.get("qq_openid_${appId}_$pid", "")
+    fun openIdFor(db: Db, appId: String, pid: String, group: Boolean = false): String =
+        db.get(if (group) "qq_group_${appId}_$pid" else "qq_openid_${appId}_$pid", "")
 
     /** 处理指令。返回 null 表示"这不是指令，去走模型" */
     fun handle(ctx: Context, acc: QqAccount, openId: String, raw: String): String? {
