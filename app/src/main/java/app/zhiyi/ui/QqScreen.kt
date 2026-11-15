@@ -42,6 +42,7 @@ import app.zhiyi.core.ChatCore
 import app.zhiyi.qq.QqAccount
 import app.zhiyi.qq.QqAccounts
 import app.zhiyi.qq.QqBot
+import app.zhiyi.qq.QqLog
 import app.zhiyi.qq.QqService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -239,32 +240,44 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit, onOpenSessions: () -> Unit = {}) {
     }
 
     evtFor?.let { a ->
-        val list = remember(a.appId) { QqBot.events(ctx, a.appId) }
+        val sends = remember(a.appId) { QqLog.lines(ctx, a.appId) }
+        val evts = remember(a.appId) { QqBot.events(ctx, a.appId) }
         AlertDialog(
             onDismissRequest = { evtFor = null },
-            title = { Text("最近收到的事件", style = Ty.title3) },
+            title = { Text("最近发生了什么", style = Ty.title3) },
             text = {
-                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                    if (list.isEmpty()) {
+                Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                    Text("发送结果（${sends.size}）", style = Ty.caption, color = T.textDim)
+                    if (sends.isEmpty()) {
+                        Text("还没发过消息。", style = Ty.caption, color = T.textFaint)
+                    } else {
+                        sends.forEach { Text(it, style = Ty.caption, color = T.textDim) }
+                    }
+                    Spacer(Modifier.height(D.s3))
+                    Text("收到的事件（${evts.size}）", style = Ty.caption, color = T.textDim)
+                    if (evts.isEmpty()) {
                         Text(
-                            "一条都没有。说明网关虽然连上了，但平台没把消息推过来——" +
-                                "检查管理端是不是选了 WebSocket 方式、群主有没有给机器人开消息权限。",
-                            style = Ty.caption, color = T.textDim,
+                            "一个都没收到。网关连上了但平台没推消息过来——检查管理端是否选了 WebSocket、" +
+                                "群主有没有给机器人开消息权限。",
+                            style = Ty.caption, color = T.textFaint,
                         )
                     } else {
                         Text(
-                            "能看到 GROUP_AT_MESSAGE_CREATE 说明群消息收到了；" +
-                                "如果是别的事件名，把它发给我，我补上处理。",
+                            "看到 GROUP_AT_MESSAGE_CREATE 说明群里 @ 它能收到；" +
+                                "如果是没见过的类型，发给我，我补处理。",
                             style = Ty.caption, color = T.textFaint,
                         )
-                        Spacer(Modifier.height(D.s2))
-                        list.forEach { line ->
-                            Text("· $line", style = Ty.caption, color = T.textDim)
-                        }
+                        evts.forEach { Text("· $it", style = Ty.caption, color = T.textDim) }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { evtFor = null }) { Text("关闭") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    QqLog.clear(ctx, a.appId)
+                    evtFor = null
+                }) { Text("清空") }
+            },
         )
     }
 
@@ -432,12 +445,33 @@ private fun AccountEditor(
                     }
                 }
                 if (people.isNotEmpty()) {
+                    Text(
+                        "标成主用户的人，聊天会直接进知忆主记忆（App 里能看到、会沉淀）；" +
+                            "其他人各存一条线，在「查看 QQ 会话」里能删。",
+                        style = Ty.caption, color = T.textFaint,
+                    )
                     people.forEach { id ->
+                        val isOwner = owners.contains(id)
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("人 …${id.takeLast(10)}", style = Ty.caption, color = T.textDim, modifier = Modifier.weight(1f))
+                            Text(
+                                (if (isOwner) "★ " else "") + "人 …${id.takeLast(10)}",
+                                style = Ty.caption,
+                                color = if (isOwner) T.accent else T.textDim,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                if (isOwner) "取消主人" else "设为主用户",
+                                style = Ty.caption,
+                                color = if (isOwner) T.textFaint else T.accent,
+                                modifier = Modifier.clickable {
+                                    owners = if (isOwner) owners - id else owners + id
+                                    if (!isNew) QqAccounts.setOwner(ctx, acc.appId, id, !isOwner)
+                                }.padding(end = D.s3),
+                            )
                             Text("移出", style = Ty.caption, color = T.danger,
                                 modifier = Modifier.clickable { people = people - id })
                         }
