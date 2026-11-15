@@ -205,9 +205,20 @@ object QqBot {
         }
 
         val groupKey = "g:$groupId"
+        val qkeyG = "g:${acc.appId}:$groupId:$memberId"
+        val isCmdG = content.startsWith("/") || content.startsWith("／")
+        if (!isCmdG) noteIncoming(ctx, qkeyG, msgId, content)
+
         scope.launch {
             val db = Db.get(ctx)
             try {
+                // 等对方说完：连续几条算一轮，别收到一条回一条
+                if (!isCmdG) {
+                    val latest = awaitQuiet(ctx, qkeyG, msgId, 5)
+                    if (latest != msgId) return@launch
+                    val merged = takeBuffer(ctx, qkeyG)
+                    if (merged.isNotBlank()) content = merged
+                }
                 // 群也要在白名单里，否则谁把机器人拉进群都能用
                 if (!QqAccounts.allowGroup(acc, groupId)) {
                     QqAccounts.pendingAdd(ctx, acc.appId, "g:$groupId")
@@ -229,8 +240,17 @@ object QqBot {
                 val memScope = "g:$groupId"
                 val speaker = if (memberId.length > 10) "…" + memberId.takeLast(8) else memberId
                 QqAccounts.rememberMember(ctx, acc.appId, memberId)
+                // 明确说别打扰 → 关掉惯性窗口。这一句照常回（不然像没听见），
+                // 但从下一句起就不再主动接话，除非又被 @。
+                // 叫停：关窗口。注意**下面所有续期都要跳过**，
+                // 之前是先关后被打开发，等于没关。
+                val stopRequested = wantsStop(content)
+                if (stopRequested) {
+                    db.putNum("qq_active_ts_${acc.appId}_$groupId", 0)
+                    db.put("qq_active_who_${acc.appId}_$groupId", "")
+                }
                 // 点亮/续期惯性窗口：接下来这段时间同一个人说话不用再 @
-                if (acc.inertiaMin > 0) {
+                if (acc.inertiaMin > 0 && !stopRequested) {
                     val dbw = Db.get(ctx)
                     dbw.putNum("qq_active_ts_${acc.appId}_$groupId", System.currentTimeMillis())
                     dbw.put("qq_active_who_${acc.appId}_$groupId", memberId)
@@ -251,6 +271,28 @@ object QqBot {
                 }
 
                 // 存的时候把说话人拼进正文，这样上下文里每一句都能看出是谁说的
+                // ---- 群里发的表情包也得看得懂 ----
+                if (QqImage.imageUrls(d).isNotEmpty()) {
+                    val see = runCatching { QqImage.describe(ctx, acc, pid, d) }.getOrDefault("")
+                    if (see.isNotBlank()) content = content + "\n（" + see + "）"
+                }
+
+                // ---- 固定指令：群里也认 /help /状态 这些，不经过模型 ----
+                val cmdReplyG = runCatching {
+                    QqCommand.handle(ctx, acc, groupId, content, group = true)
+                }.getOrNull()
+                if (cmdReplyG != null) {
+                    QqLog.add(ctx, acc.appId, "群指令", groupId, true, content.take(12))
+                    runCatching {
+                        db.addMsg(app.zhiyi.data.Msg(pid = memScope, role = "assistant", content = cmdReplyG))
+                    }
+                    QqApi.sendGroup(ctx, acc, groupId, cmdReplyG, msgId, 1)
+                    return@launch
+                }
+                if (content.startsWith("/") || content.startsWith("／")) {
+                    QqLog.add(ctx, acc.appId, "群指令未识别", groupId, false, content.take(12))
+                }
+
                 ChatCore.saveUserMsg(ctx, "【$speaker】$content", explicitPid = pid, scope = memScope)
                 val raw = ChatCore.reply(ctx, explicitPid = pid, scene = "qq", scope = memScope, task = task)
                 QqCommand.rememberOpenId(db, acc.appId, pid, groupId, group = true)
@@ -262,9 +304,17 @@ object QqBot {
                 val speech = QqText.onlySpeech(QqText.removeStickerTag(raw), pre, suf)
 
                 var seq = 1
+                var prevLen = 0
                 // 群聊最多 5 次，留 1 次给表情 → 文本最多 3 条
                 for (part in QqText.lines(speech, maxLines = 3)) {
                     if (part.isBlank()) continue
+                    // 打完上一条要多久：每字 0.5 秒 + 一点随机偏移，
+                    // 最少 0.4 秒、最多 8 秒（长句不能真等两分钟）
+                    if (seq > 1) {
+                        val wait = (prevLen * 500L + kotlin.random.Random.nextLong(400))
+                            .coerceIn(400L, 8000L)
+                        kotlinx.coroutines.delay(wait)
+                    }
                     try {
                         QqApi.sendGroup(ctx, acc, groupId, part, msgId, seq)
                         QqLog.add(ctx, acc.appId, "群被动", groupId, true)
@@ -272,13 +322,15 @@ object QqBot {
                         QqLog.add(ctx, acc.appId, "群被动", groupId, false, e.message ?: "")
                         throw e
                     }
+                    prevLen = part.length
                     seq++
                 }
                 if (stickerKw != null && seq <= 5) {
                     runCatching { QqMedia.sendRandomStickerGroup(ctx, acc, groupId, msgId, seq, stickerKw) }
                 }
-                // 回过话就续期：一直聊就一直不断，停了自然失效
-                if (acc.inertiaMin > 0) {
+                // 回过话就续期：一直聊就一直不断，停了自然失效。
+                // 但这句是叫停的话，就不续——
+                if (acc.inertiaMin > 0 && !stopRequested) {
                     db.putNum("qq_active_ts_${acc.appId}_$groupId", System.currentTimeMillis())
                 }
             } catch (e: Throwable) {
@@ -375,6 +427,82 @@ $log
         }
     }
 
+    /**
+     * 明确让人别说了。
+     *
+     * 只认短句（≤20 字）里的说法——长句里出现「别」多半是别的意思
+     * （「别担心」「别客气」）。命中就把惯性窗口关掉：这一句还会回，
+     * 但从下一句起不再主动接话，除非又被 @。
+     */
+    private val STOP_WORDS = listOf(
+        "别说了", "不要说了", "别说了吧", "别再说了",
+        "别打扰", "不要打扰", "别烦", "别吵", "安静点", "安静",
+        "闭嘴", "打住", "别回了", "不用回", "别说话", "别接了", "停一下", "行了别",
+        "别吵了", "不要吵", "别发消息", "别烦我", "不要打扰我", "别来烦", "消停",
+        "别插话", "不需要你", "你安静", "退下",
+    )
+
+    private fun wantsStop(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty() || t.length > 20) return false
+        // 「别担心」「别客气」这类不是让人闭嘴
+        if (t.contains("别担心") || t.contains("别客气") || t.contains("别急") ||
+            t.contains("别怕") || t.contains("别介意") || t.contains("别误会")
+        ) return false
+        return STOP_WORDS.any { t.contains(it) }
+    }
+
+    /**
+     * 等到"对方不再接着发"，最多 5 条 / 8 秒。
+     *
+     * 人常连着发几条（「在吗」+「问你个事」+ 正文）。逐条回会答非所问，
+     * 还会把被动回复的额度刷光。所以先等 1.6 秒的安静期：
+     * 期间又来消息就重新等；攒满 5 条或总等待超过 8 秒就放行。
+     *
+     * @return 该用哪条 msgId（最新的那条，被动回复窗口才是新的）
+     */
+    private suspend fun awaitQuiet(ctx: Context, key: String, myMsgId: String, maxMsgs: Int): String {
+        val db = Db.get(ctx)
+        val t0 = System.currentTimeMillis()
+        while (true) {
+            val cnt = db.getNum("qq_q_$key", 0)
+            val lastTs = db.getNum("qq_qts_$key", 0)
+            val idle = System.currentTimeMillis() - lastTs
+            if (cnt >= maxMsgs) break
+            if (System.currentTimeMillis() - t0 > 8000) break
+            if (lastTs > 0 && idle >= 1600) break
+            kotlinx.coroutines.delay(300)
+        }
+        // 处理完把这一段清掉，下一轮重新计数
+        db.putNum("qq_q_$key", 0)
+        return db.get("qq_qid_$key", myMsgId)
+    }
+
+    /**
+     * 收到一条时记一笔。
+     *
+     * **内容也要攒起来**：之前只记了 msgId，导致前一个人的话被"交给下一条处理"时
+     * 直接丢了——最后只回了最后那句。现在把每条正文都堆进 buffer，
+     * 轮到谁处理就一次读完。
+     */
+    private fun noteIncoming(ctx: Context, key: String, msgId: String, content: String) {
+        val db = Db.get(ctx)
+        val buf = db.get("qq_qbuf_$key", "")
+        val next = if (buf.isBlank()) content else buf + "\n" + content
+        db.put("qq_qbuf_$key", next)
+        db.putNum("qq_q_$key", db.getNum("qq_q_$key", 0) + 1)
+        db.putNum("qq_qts_$key", System.currentTimeMillis())
+        db.put("qq_qid_$key", msgId)
+    }
+
+    /** 取走攒下的全部正文（取完清空） */
+    private fun takeBuffer(ctx: Context, key: String): String {
+        val db = Db.get(ctx)
+        val v = db.get("qq_qbuf_$key", "")
+        db.put("qq_qbuf_$key", "")
+        return v
+    }
+
     private fun handleC2C(ctx: Context, acc: QqAccount, d: JSONObject) {
         val msgId = d.optString("id", "")
         val openId = d.optJSONObject("author")?.optString("user_openid", "").orEmpty()
@@ -389,9 +517,21 @@ $log
             seen.entries.removeIf { it.value < cut }
         }
 
+        val qkeyC = "c:${acc.appId}:$openId"
+        val isCmdC = content.startsWith("/") || content.startsWith("／")
+        if (!isCmdC) noteIncoming(ctx, qkeyC, msgId, content)
+
         scope.launch {
             val db = Db.get(ctx)
             try {
+                // 等对方说完：连续发几条算一轮，不要收到一条回一条
+                if (!isCmdC) {
+                    val latest = awaitQuiet(ctx, qkeyC, msgId, 5)
+                    if (latest != msgId) return@launch
+                    val merged = takeBuffer(ctx, qkeyC)
+                    if (merged.isNotBlank()) content = merged
+                }
+
                 // ---- 白名单：不在名单里一律不理，只记一笔等人批准 ----
                 // 严格模式下不在名单就不回；开放模式下照常回，但记一笔"谁找过它"
                 if (!QqAccounts.allowPerson(acc, openId)) {
@@ -410,13 +550,25 @@ $log
                 }
                 QqCommand.rememberOpenId(db, acc.appId, pid, openId, group = false)
 
+                // ---- 她得看得见对方发的图/表情包 ----
+                if (QqImage.imageUrls(d).isNotEmpty()) {
+                    val see = runCatching { QqImage.describe(ctx, acc, pid, d) }.getOrDefault("")
+                    if (see.isNotBlank()) content = content + "\n（" + see + "）"
+                }
+
                 // ---- 固定指令：不经过模型 ----
-                QqCommand.handle(ctx, acc, openId, content)?.let { reply ->
+                val cmdReply = runCatching { QqCommand.handle(ctx, acc, openId, content) }.getOrNull()
+                if (cmdReply != null) {
+                    QqLog.add(ctx, acc.appId, "指令", openId, true, content.take(12))
                     runCatching {
-                        db.addMsg(app.zhiyi.data.Msg(pid = "$pid#$openId", role = "assistant", content = reply))
+                        db.addMsg(app.zhiyi.data.Msg(pid = "$pid#$openId", role = "assistant", content = cmdReply))
                     }
-                    QqApi.sendC2C(ctx, acc, openId, reply, msgId, 1)
+                    QqApi.sendC2C(ctx, acc, openId, cmdReply, msgId, 1)
                     return@launch
+                }
+                // 以 / 开头却没命中：记一笔，免得以后又摸不着头脑
+                if (content.startsWith("/") || content.startsWith("／")) {
+                    QqLog.add(ctx, acc.appId, "指令未识别", openId, false, content.take(12))
                 }
 
                 // ---- 主用户进主记忆，其他人各存一条线 ----
@@ -437,8 +589,14 @@ $log
 
                 // 同一条原消息最多回 4 次：文本最多 3 片，留 1 次给表情
                 var seq = 1
+                var prevLen2 = 0
                 for (part in QqText.lines(speech, maxLines = 3)) {
                     if (part.isBlank()) continue
+                    if (seq > 1) {
+                        val wait = (prevLen2 * 500L + kotlin.random.Random.nextLong(400))
+                            .coerceIn(400L, 8000L)
+                        kotlinx.coroutines.delay(wait)
+                    }
                     try {
                         QqApi.sendC2C(ctx, acc, openId, part, msgId, seq)
                         QqLog.add(ctx, acc.appId, "私聊被动", openId, true)
@@ -446,6 +604,7 @@ $log
                         QqLog.add(ctx, acc.appId, "私聊被动", openId, false, e.message ?: "")
                         throw e
                     }
+                    prevLen2 = part.length
                     seq++
                 }
                 if (stickerKw != null && seq <= 4) {
