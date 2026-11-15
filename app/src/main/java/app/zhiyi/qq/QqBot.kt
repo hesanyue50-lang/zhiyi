@@ -134,10 +134,13 @@ object QqBot {
             val db = Db.get(ctx)
             try {
                 // 群也要在白名单里，否则谁把机器人拉进群都能用
-                if (!QqAccounts.allowed(acc, groupKey)) {
-                    QqAccounts.pendingAdd(ctx, acc.appId, groupKey)
+                if (!QqAccounts.allowGroup(acc, groupId)) {
+                    QqAccounts.pendingAdd(ctx, acc.appId, "g:$groupId")
                     return@launch
                 }
+                if (acc.strict) QqAccounts.pendingRemove(ctx, acc.appId, "g:$groupId")
+                else QqAccounts.pendingAdd(ctx, acc.appId, "g:$groupId")
+                db.putNum("qq_last_msg_ts_${acc.appId}", System.currentTimeMillis())
                 var pid = acc.personaId
                 if (pid.isBlank()) pid = db.personas().firstOrNull()?.id ?: ""
                 if (pid.isBlank()) {
@@ -198,10 +201,14 @@ object QqBot {
             val db = Db.get(ctx)
             try {
                 // ---- 白名单：不在名单里一律不理，只记一笔等人批准 ----
-                if (!QqAccounts.allowed(acc, openId)) {
+                // 严格模式下不在名单就不回；开放模式下照常回，但记一笔"谁找过它"
+                if (!QqAccounts.allowPerson(acc, openId)) {
                     QqAccounts.pendingAdd(ctx, acc.appId, openId)
                     return@launch
                 }
+                if (acc.strict) QqAccounts.pendingRemove(ctx, acc.appId, openId)
+                else QqAccounts.pendingAdd(ctx, acc.appId, openId)
+                db.putNum("qq_last_msg_ts_${acc.appId}", System.currentTimeMillis())
 
                 var pid = acc.personaId
                 if (pid.isBlank()) pid = db.personas().firstOrNull()?.id ?: ""
