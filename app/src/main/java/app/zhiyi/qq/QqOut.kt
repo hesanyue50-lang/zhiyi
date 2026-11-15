@@ -48,7 +48,22 @@ object QqOut {
      * @return true = 已经通过 QQ 发出去了，调用方不要再发通知
      */
     fun send(ctx: Context, pid: String, text: String): Boolean {
-        if (!ready(ctx, pid)) return false
+        val db0 = Db.get(ctx)
+        if (!ready(ctx, pid)) {
+            // 记下为什么没发：没有账号 / 账号没开 / 没有目标
+            val why = run {
+                val a = accountFor(db0, pid)
+                when {
+                    a == null -> "没有绑定这个人格、或没开着的机器人"
+                    a.groupProactive && a.groups.isEmpty() -> "开了群主动但白名单里没有群"
+                    !a.groupProactive && QqCommand.openIdFor(db0, a.appId, pid, false).isBlank() ->
+                        "还没跟这个人私聊过，不知道发给谁"
+                    else -> "条件不满足"
+                }
+            }
+            QqBot.lastError = "主动发话跳过：$why"
+            return false
+        }
         val db = Db.get(ctx)
         val acc = accountFor(db, pid) ?: return false
         val openId = QqCommand.openIdFor(db, acc.appId, pid, group = false)
