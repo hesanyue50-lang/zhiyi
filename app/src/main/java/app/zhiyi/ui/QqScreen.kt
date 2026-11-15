@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -74,7 +75,7 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(T.bg).statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         GlassTopBar(
             title = "QQ",
             subtitle = if (accounts.isEmpty()) "还没有机器人" else QqBot.summary(ctx),
@@ -240,6 +241,7 @@ private fun AccountEditor(
     val personas = remember { db.personas() }
     val pending = remember { if (isNew) emptyList() else QqAccounts.pending(db, acc.appId) }
     var whitelist by remember { mutableStateOf(acc.whitelist) }
+    var manualId by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -285,9 +287,30 @@ private fun AccountEditor(
                     }
                 }
 
+                Spacer(Modifier.height(D.s3))
+                Text("白名单（${whitelist.size}）", style = Ty.caption, color = T.textDim)
+                Text(
+                    "私聊时腾讯的「内部体验号码」已经挡了一层，这里的价值在群：群被拉进去之后，" +
+                        "群里任何人都能 @ 它，得靠这个名单决定回不回。",
+                    style = Ty.caption, color = T.textFaint,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = manualId,
+                        onValueChange = { manualId = it.trim() },
+                        label = { Text("手动加 openid") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(D.s2))
+                    Pill("添加") {
+                        if (manualId.isNotBlank() && !whitelist.contains(manualId)) {
+                            whitelist = whitelist + manualId
+                            manualId = ""
+                        }
+                    }
+                }
                 if (whitelist.isNotEmpty()) {
-                    Spacer(Modifier.height(D.s3))
-                    Text("白名单（${whitelist.size}）", style = Ty.caption, color = T.textDim)
                     whitelist.forEach { id ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp),
@@ -372,8 +395,11 @@ private fun AccountEditor(
     )
 }
 
-private fun tail(openId: String): String =
-    if (openId.length <= 12) openId else "…" + openId.takeLast(10)
+private fun tail(openId: String): String = when {
+    openId.startsWith("g:") -> "群 …" + openId.takeLast(8)
+    openId.length <= 12 -> openId
+    else -> "…" + openId.takeLast(10)
+}
 
 @Composable
 private fun Pill(text: String, onClick: () -> Unit) {
