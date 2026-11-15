@@ -8,30 +8,45 @@ import org.json.JSONObject
 /**
  * 一个 QQ 机器人账号 = 一个 AppID = 一个人格。
  *
- * 为什么这样设计：腾讯的 openid 是**按机器人**分配的，同一个人在不同机器人下
- * 拿到的 openid 完全不同，也没法换算成 QQ 号。所以"一个账号一个人格"是最省事、
- * 也最不容易串的隔离单位——每个人格有自己独立的机器人、独立的白名单、独立的记忆。
- *
- * 记忆隔离靠 `pid#openid`：人格仍然是同一份设定，但每个白名单用户看到的是
- * 属于他自己的那条记忆线（她记得他说过的话，不会跟别人混）。
+ * 隔离单位为什么是"账号"：腾讯的 openid 按机器人分配，同一个人在不同机器人下
+ * 拿到的 openid 完全不同，也没法换算成 QQ 号。所以账号是最自然、最不会串的边界。
  */
 data class QqAccount(
     val appId: String,
     val secret: String = "",
     val personaId: String = "",
-    /** 允许对话的 openid 列表；空 = 谁都不理，避免陌生人一上来就能聊 */
-    val whitelist: List<String> = emptyList(),
+    /** 允许私聊的 openid */
+    val people: List<String> = emptyList(),
+    /** 允许的群（group_openid，不带 g: 前缀） */
+    val groups: List<String> = emptyList(),
+    /**
+     * 访问模式。**显式开关，不靠列表空不空来猜**——
+     * 之前用"名单为空就放行"当默认，结果加了第一个人之后其他人突然全被挡，
+     * 而用户完全不知道发生了什么。
+     *
+     * - open：谁都能聊（自己用的默认）
+     * - strict：只认 people / groups 里的
+     */
+    val mode: String = MODE_OPEN,
     val enabled: Boolean = false,
-    /** 开了以后，主动发话发到群里（白名单里的群），而不是私聊 */
+    /** 开了以后，主动发话发到群里（groups 里的群），而不是私聊 */
     val groupProactive: Boolean = false,
 ) {
+    companion object {
+        const val MODE_OPEN = "open"
+        const val MODE_STRICT = "strict"
+    }
+
     val id: String get() = appId
     val ready: Boolean get() = appId.isNotBlank() && secret.isNotBlank()
+    val strict: Boolean get() = mode == MODE_STRICT
 }
 
 object QqAccounts {
 
     private const val KEY = "qq_accounts"
+
+    // ---------------------------------------------------------------- 读写
 
     fun all(db: Db): List<QqAccount> {
         migrateLegacy(db)
@@ -40,16 +55,35 @@ object QqAccounts {
         val out = ArrayList<QqAccount>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val wl = ArrayList<String>()
-            o.optJSONArray("whitelist")?.let { w ->
-                for (k in 0 until w.length()) w.optString(k).takeIf { it.isNotBlank() }?.let { wl.add(it) }
+
+            val people = ArrayList<String>()
+            val groups = ArrayList<String>()
+            o.optJSONArray("people")?.let { w ->
+                for (k in 0 until w.length()) w.optString(k).takeIf { it.isNotBlank() }?.let { people.add(it) }
             }
+            o.optJSONArray("groups")?.let { w ->
+                for (k in 0 until w.length()) w.optString(k).takeIf { it.isNotBlank() }?.let { groups.add(it) }
+            }
+            // 老数据：群用 "g:" 前缀混在 whitelist 里，读出来时拆开放
+            o.optJSONArray("whitelist")?.let { w ->
+                for (k in 0 until w.length()) {
+                    val v = w.optString(k)
+                    if (v.isBlank()) continue
+                    if (v.startsWith("g:")) groups.add(v.removePrefix("g:")) else people.add(v)
+                }
+            }
+
             out.add(
                 QqAccount(
                     appId = o.optString("appId"),
                     secret = o.optString("secret"),
                     personaId = o.optString("personaId"),
-                    whitelist = wl,
+                    people = people,
+                    groups = groups,
+                    mode = o.optString("mode").ifBlank {
+                        // 老数据没有 mode：有名单就当严格，没名单就当开放
+                        if (people.isEmpty() && groups.isEmpty()) QqAccount.MODE_OPEN else QqAccount.MODE_STRICT
+                    },
                     enabled = o.optBoolean("enabled", false),
                     groupProactive = o.optBoolean("groupProactive", false),
                 )
@@ -66,7 +100,9 @@ object QqAccounts {
                     .put("appId", a.appId)
                     .put("secret", a.secret)
                     .put("personaId", a.personaId)
-                    .put("whitelist", JSONArray(a.whitelist))
+                    .put("people", JSONArray(a.people))
+                    .put("groups", JSONArray(a.groups))
+                    .put("mode", a.mode)
                     .put("enabled", a.enabled)
                     .put("groupProactive", a.groupProactive)
             )
@@ -85,33 +121,57 @@ object QqAccounts {
     fun remove(ctx: Context, appId: String) {
         val db = Db.get(ctx)
         save(db, all(db).filterNot { it.appId == appId })
-        // 顺手把这个账号的运行时缓存清掉
         db.put("qq_token_$appId", "")
         db.put("qq_token_exp_$appId", "0")
+        db.put("qq_pending_$appId", "[]")
     }
 
     fun get(db: Db, appId: String): QqAccount? = all(db).firstOrNull { it.appId == appId }
 
-    /** 某个 openid 在某账号下是否被允许 */
-    fun allowed(a: QqAccount, openId: String): Boolean = a.whitelist.contains(openId)
+    // ---------------------------------------------------------------- 权限判断
 
-    fun allow(ctx: Context, appId: String, openId: String) {
+    /** 私聊：这个人能不能对话 */
+    fun allowPerson(a: QqAccount, openId: String): Boolean =
+        !a.strict || a.people.contains(openId)
+
+    /** 群：这个群能不能对话 */
+    fun allowGroup(a: QqAccount, groupOpenId: String): Boolean =
+        !a.strict || a.groups.contains(groupOpenId)
+
+    fun addPerson(ctx: Context, appId: String, openId: String) {
         val db = Db.get(ctx)
         val a = get(db, appId) ?: return
-        if (a.whitelist.contains(openId)) return
-        upsert(ctx, a.copy(whitelist = a.whitelist + openId))
+        if (!a.people.contains(openId)) upsert(ctx, a.copy(people = a.people + openId))
         pendingRemove(ctx, appId, openId)
     }
 
-    fun deny(ctx: Context, appId: String, openId: String) {
+    fun removePerson(ctx: Context, appId: String, openId: String) {
         val db = Db.get(ctx)
         val a = get(db, appId) ?: return
-        upsert(ctx, a.copy(whitelist = a.whitelist - openId))
-        pendingRemove(ctx, appId, openId)
+        upsert(ctx, a.copy(people = a.people - openId))
     }
 
-    // ---- 待批准：陌生人发消息时不回复，先记下来让用户在 App 里点 ----
+    fun addGroup(ctx: Context, appId: String, groupOpenId: String) {
+        val db = Db.get(ctx)
+        val a = get(db, appId) ?: return
+        if (!a.groups.contains(groupOpenId)) upsert(ctx, a.copy(groups = a.groups + groupOpenId))
+        pendingRemove(ctx, appId, "g:$groupOpenId")
+        pendingRemove(ctx, appId, groupOpenId)
+    }
 
+    fun removeGroup(ctx: Context, appId: String, groupOpenId: String) {
+        val db = Db.get(ctx)
+        val a = get(db, appId) ?: return
+        upsert(ctx, a.copy(groups = a.groups - groupOpenId))
+    }
+
+    // ---------------------------------------------------------------- 待批准
+
+    /**
+     * 谁找过它。两种模式下都记：
+     * - open 模式下记，是为了让你知道"有谁在跟它说话"，方便一键收进名单；
+     * - strict 模式下记，是因为拦下来的那些人得让你看见。
+     */
     fun pending(db: Db, appId: String): List<Pair<String, Long>> {
         val raw = db.get("qq_pending_$appId", "[]")
         val arr = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
@@ -126,9 +186,13 @@ object QqAccounts {
 
     fun pendingAdd(ctx: Context, appId: String, openId: String) {
         val db = Db.get(ctx)
+        val a = get(db, appId) ?: return
+        // 已经在名单里的不用再记
+        val bare = openId.removePrefix("g:")
+        val known = a.people.contains(openId) || a.groups.contains(bare)
         val now = System.currentTimeMillis()
-        val list = pending(db, appId).filterNot { it.first == openId } + (openId to now)
-        // 只留最近 30 条，别无限长
+        val list = if (known) pending(db, appId).filterNot { it.first == openId }
+        else pending(db, appId).filterNot { it.first == openId } + (openId to now)
         val arr = JSONArray()
         list.takeLast(30).forEach { (id, ts) ->
             arr.put(JSONObject().put("openId", id).put("ts", ts))
@@ -136,7 +200,7 @@ object QqAccounts {
         db.put("qq_pending_$appId", arr.toString())
     }
 
-    private fun pendingRemove(ctx: Context, appId: String, openId: String) {
+    fun pendingRemove(ctx: Context, appId: String, openId: String) {
         val db = Db.get(ctx)
         val arr = JSONArray()
         pending(db, appId).filterNot { it.first == openId }.forEach { (id, ts) ->
@@ -145,10 +209,11 @@ object QqAccounts {
         db.put("qq_pending_$appId", arr.toString())
     }
 
-    /**
-     * 老版本只有单账号（qq_app_id / qq_secret / qq_enabled）。
-     * 第一次读到新结构时把老的搬过来，免得用户重填。
-     */
+    /** 这个 openid 是不是一个群（老数据用 g: 前缀） */
+    fun isGroupKey(key: String): Boolean = key.startsWith("g:")
+
+    // ---------------------------------------------------------------- 迁移
+
     private fun migrateLegacy(db: Db) {
         if (db.get("qq_migrated", "0") == "1") return
         val appId = db.get("qq_app_id", "")
@@ -157,7 +222,6 @@ object QqAccounts {
                 appId = appId,
                 secret = db.get("qq_secret", ""),
                 personaId = db.personas().firstOrNull()?.id ?: "",
-                whitelist = emptyList(),
                 enabled = db.get("qq_enabled", "0") == "1",
             )
             save(db, listOf(a))
