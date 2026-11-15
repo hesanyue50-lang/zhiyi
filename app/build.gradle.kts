@@ -24,8 +24,8 @@ android {
         applicationId = "app.zhiyi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 182
-        versionName = "10.99"
+        versionCode = 185
+        versionName = "11.02"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     lint {
