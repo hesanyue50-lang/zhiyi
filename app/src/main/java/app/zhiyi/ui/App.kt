@@ -68,7 +68,7 @@ private fun isSubKey(k: String?) =
 @Composable
 fun ZhiYiApp(vm: AppVm) {
     var sub by remember { mutableStateOf<String?>(null) }   // "world:pid" / "chat:pid"
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
     val scope = rememberCoroutineScope()
     val tab = pagerState.currentPage
 
@@ -129,11 +129,17 @@ fun ZhiYiApp(vm: AppVm) {
                         0 -> PersonaListScreen(
                             vm,
                             onOpenChat = { pid -> vm.switchPersona(pid); sub = "chat:$pid" },
-                            onOpenSettings = { scope.launch { pagerState.animateScrollToPage(2) } },
+                            onOpenSettings = { scope.launch { pagerState.animateScrollToPage(3) } },
                             onOpenProfile = { pid -> vm.switchPersona(pid); sub = "profile:$pid" },
                         )
                         1 -> MemoryScreen(vm)
-                        else -> SettingsScreen(vm, onOpenWorld = { pid -> sub = "world:$pid" }, onOpenClean = { sub = "clean" })
+                        2 -> CompanionScreen(
+                            vm,
+                            onOpenPetSettings = { scope.launch { pagerState.animateScrollToPage(3) } },
+                            onOpenQq = { sub = "qq" },
+                            onOpenProactive = { scope.launch { pagerState.animateScrollToPage(3) } },
+                        )
+                        else -> SettingsScreen(vm, onOpenWorld = { pid -> sub = "world:$pid" }, onOpenClean = { sub = "clean" }, onOpenQq = { sub = "qq" })
                     }
                 }
 
@@ -164,6 +170,7 @@ fun ZhiYiApp(vm: AppVm) {
                 k?.startsWith("world:") == true -> WorldScreen(vm, k.removePrefix("world:"), onBack = { sub = null })
                 k?.startsWith("profile:") == true -> ProfileScreen(vm, onBack = { sub = null })
                 k == "clean" -> CleanScreen(vm, onBack = { sub = null })
+                k == "qq" -> QqScreen(vm, onBack = { sub = null })
             }
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -235,7 +242,8 @@ fun TabBar(current: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier)
     ) {
         TabItem("对话", current == 0, { onSelect(0) }) { c, s -> GlyphChat(c, s) }
         TabItem("记忆", current == 1, { onSelect(1) }) { c, s -> GlyphMemory(c, s) }
-        TabItem("设置", current == 2, { onSelect(2) }) { c, s -> GlyphGear(c, s) }
+        TabItem("陪伴", current == 2, { onSelect(2) }) { c, s -> GlyphHeart(c, s) }
+        TabItem("设置", current == 3, { onSelect(3) }) { c, s -> GlyphGear(c, s) }
     }
 }
 
@@ -294,6 +302,31 @@ fun GlyphMemory(c: Color, s: androidx.compose.ui.unit.Dp) {
         drawPath(p, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = w * 0.1f))
         drawLine(c, Offset(w * 0.62f, h * 0.28f), Offset(w * 0.94f, h * 0.28f), strokeWidth = w * 0.1f, cap = StrokeCap.Round)
         drawLine(c, Offset(w * 0.72f, h * 0.12f), Offset(w * 0.94f, h * 0.12f), strokeWidth = w * 0.1f, cap = StrokeCap.Round)
+    }
+}
+
+@Composable
+fun GlyphHeart(c: Color, s: androidx.compose.ui.unit.Dp) {
+    // 和 Chat / Memory / Gear 统一：全部走描边，线宽 0.1w，圆头圆角。
+    // 实心会在四个空心图标里跳出来，看着像另一套图标集。
+    androidx.compose.foundation.Canvas(Modifier.size(s)) {
+        val w = size.width; val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.50f, h * 0.88f)
+            cubicTo(w * 0.10f, h * 0.60f, w * 0.06f, h * 0.30f, w * 0.29f, h * 0.24f)
+            cubicTo(w * 0.42f, h * 0.21f, w * 0.50f, h * 0.33f, w * 0.50f, h * 0.39f)
+            cubicTo(w * 0.50f, h * 0.33f, w * 0.58f, h * 0.21f, w * 0.71f, h * 0.24f)
+            cubicTo(w * 0.94f, h * 0.30f, w * 0.90f, h * 0.60f, w * 0.50f, h * 0.88f)
+            close()
+        }
+        drawPath(
+            path, c,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = w * 0.10f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            )
+        )
     }
 }
 
