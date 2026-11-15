@@ -98,7 +98,7 @@ fun CleanScreen(vm: AppVm, onBack: () -> Unit) {
 
     val total = usage.sumOf { it.bytes }
 
-    Column(Modifier.fillMaxSize().background(T.bg).statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         GlassTopBar(
             title = "清理空间",
             subtitle = "一共 ${CleanStore.human(total)}",
