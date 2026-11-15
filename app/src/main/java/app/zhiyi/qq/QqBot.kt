@@ -102,6 +102,18 @@ object QqBot {
      * 用 1 秒内存缓存挡住 JSON 解析的开销。
      */
     private val accCache = ConcurrentHashMap<String, Pair<Long, QqAccount>>()
+    private val nameCache = ConcurrentHashMap<String, String>()
+
+    /** 机器人自己叫什么，用来判断群里是不是在叫它 */
+    private fun botName(ctx: Context, acc: QqAccount): String {
+        nameCache[acc.appId]?.let { return it }
+        val n = runCatching {
+            val me = QqApi.me(ctx, acc)
+            me.optString("username", me.optString("nickname", ""))
+        }.getOrDefault("")
+        if (n.isNotBlank()) nameCache[acc.appId] = n
+        return n
+    }
 
     private fun live(ctx: Context, acc: QqAccount): QqAccount {
         val now = System.currentTimeMillis()
@@ -116,7 +128,15 @@ object QqBot {
         logEvent(ctx, acc.appId, type, d)
         when (type) {
             "C2C_MESSAGE_CREATE" -> handleC2C(ctx, acc, d)
-            "GROUP_AT_MESSAGE_CREATE" -> handleGroup(ctx, acc, d)
+            "GROUP_AT_MESSAGE_CREATE" -> handleGroup(ctx, acc, d, forced = true)
+            // 群主开了"接收全量消息"之后，普通群消息走这个事件。
+            // 不能每条都回（会刷屏），只在话里提到它时才接。
+            "GROUP_MESSAGE_CREATE" -> {
+                val raw = d.optString("content", "")
+                val mentioned = raw.contains("<@") || raw.contains("@") ||
+                    raw.contains(botName(ctx, acc), ignoreCase = true)
+                if (mentioned) handleGroup(ctx, acc, d, forced = false)
+            }
             "C2C_MSG_REJECT" -> { lastError = "用户在 QQ 资料卡关闭了「允许主动发送」" }
         }
     }
@@ -130,7 +150,7 @@ object QqBot {
      *    否则她在群里对 A 说"你上次提到…"时，B 完全接不上话，像两个人各聊各的。
      *    但每次会告诉模型这话是谁说的，免得把 A 的事安到 B 头上。
      */
-    private fun handleGroup(ctx: Context, acc: QqAccount, d: JSONObject) {
+    private fun handleGroup(ctx: Context, acc: QqAccount, d: JSONObject, forced: Boolean = true) {
         val msgId = d.optString("id", "")
         val groupId = d.optString("group_openid", "")
         val memberId = d.optJSONObject("author")?.optString("member_openid", "").orEmpty()
@@ -139,7 +159,10 @@ object QqBot {
 
         // 群里 content 前面带 <@!bot_id> 这类标记，去掉
         content = content.replace(Regex("<@!?[^>]*>"), "").trim()
-        if (content.isBlank()) return
+        // 全量消息里，纯 @ 掉之后如果只剩空，说明只是点了一下名，回个"嗯？"
+        if (content.isBlank()) {
+            if (forced) content = "（只 @ 了你一下）" else return
+        }
 
         val now = System.currentTimeMillis()
         if (seen.putIfAbsent("${acc.appId}:$msgId", now) != null) return
@@ -197,7 +220,13 @@ object QqBot {
                 // 群聊最多 5 次，留 1 次给表情 → 文本最多 3 条
                 for (part in QqText.lines(speech, maxLines = 3)) {
                     if (part.isBlank()) continue
-                    QqApi.sendGroup(ctx, acc, groupId, part, msgId, seq)
+                    try {
+                        QqApi.sendGroup(ctx, acc, groupId, part, msgId, seq)
+                        QqLog.add(ctx, acc.appId, "群被动", groupId, true)
+                    } catch (e: Throwable) {
+                        QqLog.add(ctx, acc.appId, "群被动", groupId, false, e.message ?: "")
+                        throw e
+                    }
                     seq++
                 }
                 if (stickerKw != null && seq <= 5) {
@@ -297,9 +326,14 @@ object QqBot {
                     return@launch
                 }
 
-                // ---- 正常对话：scope = openId，记忆按人分开 ----
-                ChatCore.saveUserMsg(ctx, content, explicitPid = pid, scope = openId)
-                val raw = ChatCore.reply(ctx, explicitPid = pid, scene = "qq", scope = openId)
+                // ---- 主用户进主记忆，其他人各存一条线 ----
+                // 主用户的 scope 留空 = 直接用 pid，和 App 里是同一份记忆：
+                // 他在 QQ 里说的话，回 App 能看到，也会沉淀成长期记忆。
+                // 其他人用 openid 单独一条线，不进主记忆，管理页可以整条删掉。
+                val isOwner = acc.owners.contains(openId)
+                val memScope = if (isOwner) "" else openId
+                ChatCore.saveUserMsg(ctx, content, explicitPid = pid, scope = memScope)
+                val raw = ChatCore.reply(ctx, explicitPid = pid, scene = "qq", scope = memScope)
 
                 val p = runCatching { db.persona(pid) }.getOrNull()
                 val pre = p?.sayPrefix?.ifBlank { "「" } ?: "「"
@@ -312,7 +346,13 @@ object QqBot {
                 var seq = 1
                 for (part in QqText.lines(speech, maxLines = 3)) {
                     if (part.isBlank()) continue
-                    QqApi.sendC2C(ctx, acc, openId, part, msgId, seq)
+                    try {
+                        QqApi.sendC2C(ctx, acc, openId, part, msgId, seq)
+                        QqLog.add(ctx, acc.appId, "私聊被动", openId, true)
+                    } catch (e: Throwable) {
+                        QqLog.add(ctx, acc.appId, "私聊被动", openId, false, e.message ?: "")
+                        throw e
+                    }
                     seq++
                 }
                 if (stickerKw != null && seq <= 4) {
