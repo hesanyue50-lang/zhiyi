@@ -94,7 +94,25 @@ object QqBot {
 
     // ---------------------------------------------------------------- 事件
 
-    private fun onEvent(ctx: Context, acc: QqAccount, type: String, d: JSONObject) {
+    /**
+     * 拿到**当前**的账号配置。
+     *
+     * 网关启动时捕获的是那一刻的 QqAccount；之后你在 App 里改白名单、换人格、开关群主动，
+     * 正在跑的长连接手上还是旧的——表现出来就是"改了没反应"。这里每次事件重读一次，
+     * 用 1 秒内存缓存挡住 JSON 解析的开销。
+     */
+    private val accCache = ConcurrentHashMap<String, Pair<Long, QqAccount>>()
+
+    private fun live(ctx: Context, acc: QqAccount): QqAccount {
+        val now = System.currentTimeMillis()
+        accCache[acc.appId]?.let { (ts, a) -> if (now - ts < 1000) return a }
+        val fresh = runCatching { QqAccounts.get(Db.get(ctx), acc.appId) }.getOrNull() ?: acc
+        accCache[acc.appId] = now to fresh
+        return fresh
+    }
+
+    private fun onEvent(ctx: Context, captured: QqAccount, type: String, d: JSONObject) {
+        val acc = live(ctx, captured)
         when (type) {
             "C2C_MESSAGE_CREATE" -> handleC2C(ctx, acc, d)
             "GROUP_AT_MESSAGE_CREATE" -> handleGroup(ctx, acc, d)
@@ -156,7 +174,7 @@ object QqBot {
 
                 ChatCore.saveUserMsg(ctx, content, explicitPid = pid, scope = memScope)
                 val raw = ChatCore.reply(ctx, explicitPid = pid, scene = "qq", scope = memScope, task = task)
-                QqCommand.rememberOpenId(db, acc.appId, pid, groupId)   // 主动发话也能发到群
+                QqCommand.rememberOpenId(db, acc.appId, pid, groupId, group = true)
 
                 val p = runCatching { db.persona(pid) }.getOrNull()
                 val pre = p?.sayPrefix?.ifBlank { "「" } ?: "「"
@@ -177,7 +195,7 @@ object QqBot {
             } catch (e: Throwable) {
                 lastError = e.message ?: e.javaClass.simpleName
                 runCatching {
-                    QqApi.sendGroup(ctx, acc, groupId, "（她好像卡了一下：${(e.message ?: "未知错误").take(50)}）", msgId, 1)
+                    QqApi.sendGroup(ctx, acc, groupId, oops(e), msgId, 1)
                 }
             }
         }
@@ -216,7 +234,7 @@ object QqBot {
                     QqApi.sendC2C(ctx, acc, openId, "还没有人格。先去 App 里建一个。", msgId, 1)
                     return@launch
                 }
-                QqCommand.rememberOpenId(db, acc.appId, pid, openId)
+                QqCommand.rememberOpenId(db, acc.appId, pid, openId, group = false)
 
                 // ---- 固定指令：不经过模型 ----
                 QqCommand.handle(ctx, acc, openId, content)?.let { reply ->
@@ -251,12 +269,26 @@ object QqBot {
             } catch (e: Throwable) {
                 lastError = e.message ?: e.javaClass.simpleName
                 runCatching {
-                    QqApi.sendC2C(
-                        ctx, acc, openId,
-                        "（她好像卡了一下：${(e.message ?: "未知错误").take(60)}）", msgId, 1
-                    )
+                    QqApi.sendC2C(ctx, acc, openId, oops(e), msgId, 1)
                 }
             }
+        }
+    }
+
+    /**
+     * 出错时说人话。
+     *
+     * 之前直接把 "HTTP 503 服务端错误 {"error":{"code":"upstream_timeout"}}" 发到群里，
+     * 既难看又没人看得懂。技术细节记进 lastError，App 里能查；对外只说一句自然的。
+     */
+    private fun oops(e: Throwable): String {
+        val m = (e.message ?: "").lowercase()
+        return when {
+            m.contains("503") || m.contains("upstream") || m.contains("timeout") -> "……刚才走神了，你再说一遍？"
+            m.contains("429") -> "等一下，这会儿有点挤。"
+            m.contains("401") || m.contains("token") -> "我这边有点问题，晚点再说。"
+            m.contains("304003") || m.contains("msg_id") -> "刚才那条隔太久了，重新跟我说一句？"
+            else -> "……刚才没听清。"
         }
     }
 }
