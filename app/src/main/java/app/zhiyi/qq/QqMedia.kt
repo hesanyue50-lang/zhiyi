@@ -60,26 +60,60 @@ object QqMedia {
         }
     }
 
+    /** 群聊发图。群和私聊的 media 接口不互通，file_info 也不能跨用 */
+    fun sendGroupImage(ctx: Context, acc: QqAccount, groupOpenId: String, fileInfo: String, msgId: String? = null, msgSeq: Int = 1) {
+        val tk = QqApi.token(ctx, acc)
+        val body = JSONObject().put("msg_type", 7).put("media", JSONObject().put("file_info", fileInfo))
+        if (msgId != null) body.put("msg_id", msgId).put("msg_seq", msgSeq)
+        val res = QqApi.request(
+            "POST", "$BASE/v2/groups/${java.net.URLEncoder.encode(groupOpenId, "UTF-8")}/messages",
+            tk, body.toString()
+        )
+        val code = res.optInt("code", 0)
+        if (code != 0) throw QqException("群发图失败（code=$code）：${res.optString("message", "")}", code)
+    }
+
     /**
-     * 从本地表情库随机挑一张，上传并发出去。
-     * 一个都没有就返回 false，调用方安静跳过（没表情包不是错误）。
+     * 挑一张表情并发出去（本地优先，本地没有了就联网搜关键词）。
+     * 一个都没有就返回 false，调用方安静跳过——没表情包不是错误。
      */
-    fun sendRandomSticker(ctx: Context, acc: QqAccount, openId: String, msgId: String?, msgSeq: Int): Boolean {
-        val names = runCatching { app.zhiyi.data.StickerStore.list(ctx) }.getOrDefault(emptyList())
-        if (names.isEmpty()) return false
-        val db = Db.get(ctx)
-        // 避免连着两次发同一张
-        val last = db.get("qq_last_sticker", "")
-        val pool = if (names.size > 1) names.filter { it != last } else names
-        val pick = pool.random()
-        val f = java.io.File(app.zhiyi.data.StickerStore.dir(ctx), pick)
-        if (!f.exists()) return false
+    fun sendRandomSticker(ctx: Context, acc: QqAccount, openId: String, msgId: String?, msgSeq: Int, keyword: String = ""): Boolean {
+        val f = StickerPick.pick(ctx, keyword) ?: return false
         val bytes = runCatching { f.readBytes() }.getOrNull() ?: return false
-        // QQ 对富媒体有大小限制，太大的直接跳过而不是报错
         if (bytes.size > 2 * 1024 * 1024) return false
-        val info = uploadImage(ctx, acc, openId, bytes, pick)
+        val info = uploadImage(ctx, acc, openId, bytes, f.name)
         sendImage(ctx, acc, openId, info, msgId, msgSeq)
-        db.put("qq_last_sticker", pick)
+        StickerPick.remember(ctx, f.name)
+        return true
+    }
+
+    /** 上传到群（群和私聊的 files 接口不互通，必须分开传） */
+    fun uploadGroupImage(ctx: Context, acc: QqAccount, groupOpenId: String, bytes: ByteArray, name: String = "sticker.png"): String {
+        if (bytes.isEmpty()) throw QqException("图片是空的")
+        val tk = QqApi.token(ctx, acc)
+        val body = JSONObject()
+            .put("file_type", FILE_TYPE_IMAGE)
+            .put("file_data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            .put("file_name", name)
+            .put("srv_send_msg", false)
+        val res = QqApi.request(
+            "POST",
+            "$BASE/v2/groups/${java.net.URLEncoder.encode(groupOpenId, "UTF-8")}/files",
+            tk, body.toString()
+        )
+        val code = res.optInt("code", 0)
+        if (code != 0) throw QqException("群上传图片失败（code=$code）：${res.optString("message", "")}", code)
+        return res.optString("file_info", "").also { if (it.isBlank()) throw QqException("没拿到 file_info") }
+    }
+
+    /** 群里发一张表情 */
+    fun sendRandomStickerGroup(ctx: Context, acc: QqAccount, groupOpenId: String, msgId: String?, msgSeq: Int, keyword: String = ""): Boolean {
+        val f = StickerPick.pick(ctx, keyword) ?: return false
+        val bytes = runCatching { f.readBytes() }.getOrNull() ?: return false
+        if (bytes.size > 2 * 1024 * 1024) return false
+        val info = uploadGroupImage(ctx, acc, groupOpenId, bytes, f.name)
+        sendGroupImage(ctx, acc, groupOpenId, info, msgId, msgSeq)
+        StickerPick.remember(ctx, f.name)
         return true
     }
 }
