@@ -73,6 +73,28 @@ object QqApi {
         if (code != 0) throw QqException("发送失败（code=$code）：${res.optString("message", "")}", code)
     }
 
+    /**
+     * 发一条群消息。
+     *
+     * 群聊的被动回复窗口比私聊紧得多：**5 分钟、每条最多 5 次**
+     * （私聊是 60 分钟 / 4 次），所以群里回得更要克制。
+     */
+    fun sendGroup(
+        ctx: Context,
+        acc: QqAccount,
+        groupOpenId: String,
+        content: String,
+        msgId: String? = null,
+        msgSeq: Int = 1,
+    ) {
+        val tk = token(ctx, acc)
+        val body = JSONObject().put("content", content).put("msg_type", 0)
+        if (msgId != null) body.put("msg_id", msgId).put("msg_seq", msgSeq)
+        val res = request("POST", "$BASE/v2/groups/${enc(groupOpenId)}/messages", tk, body.toString())
+        val code = res.optInt("code", 0)
+        if (code != 0) throw QqException("发群消息失败（code=$code）：${res.optString("message", "")}", code)
+    }
+
     /** 机器人自身信息，用来验证凭据 */
     fun me(ctx: Context, acc: QqAccount): JSONObject {
         val tk = token(ctx, acc)
