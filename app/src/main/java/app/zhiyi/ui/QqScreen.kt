@@ -1,6 +1,9 @@
 package app.zhiyi.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -136,7 +139,8 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit) {
                             Column(Modifier.weight(1f)) {
                                 Text("机器人 ${a.appId}", style = Ty.title3, color = T.text)
                                 Text(
-                                    "人格：${db.persona(a.personaId)?.name ?: "未绑定"} · 白名单 ${a.whitelist.size} 人",
+                                    "人格：${db.persona(a.personaId)?.name ?: "未绑定"} · " +
+                                        (if (a.strict) "只回 ${a.people.size} 人 / ${a.groups.size} 群" else "谁都能聊"),
                                     style = Ty.caption, color = T.textDim
                                 )
                             }
@@ -164,6 +168,15 @@ fun QqScreen(vm: AppVm, onBack: () -> Unit) {
                                 Text(
                                     st, style = Ty.caption,
                                     color = if (QqBot.isRunning(a.appId)) T.ok else T.textDim,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                            val lastMsg = db.getNum("qq_last_msg_ts_${a.appId}", 0)
+                            Surface(shape = RoundedCornerShape(4.dp), color = T.track) {
+                                Text(
+                                    if (lastMsg == 0L) "还没收到过消息"
+                                    else "最后收到 " + agoShort(lastMsg),
+                                    style = Ty.caption, color = T.textDim,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                 )
                             }
@@ -235,20 +248,24 @@ private fun AccountEditor(
     var appId by remember { mutableStateOf(acc.appId) }
     var secret by remember { mutableStateOf(acc.secret) }
     var personaId by remember { mutableStateOf(acc.personaId) }
+    var strict by remember { mutableStateOf(acc.strict) }
+    var people by remember { mutableStateOf(acc.people) }
+    var groups by remember { mutableStateOf(acc.groups) }
+    var groupPro by remember { mutableStateOf(acc.groupProactive) }
     var busy by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf("") }
+    var manualId by remember { mutableStateOf("") }
 
     val personas = remember { db.personas() }
     val pending = remember { if (isNew) emptyList() else QqAccounts.pending(db, acc.appId) }
-    var whitelist by remember { mutableStateOf(acc.whitelist) }
-    var manualId by remember { mutableStateOf("") }
-    var groupPro by remember { mutableStateOf(acc.groupProactive) }
+    val pendingPeople = pending.filterNot { QqAccounts.isGroupKey(it.first) }
+    val pendingGroups = pending.filter { QqAccounts.isGroupKey(it.first) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "新建机器人" else "机器人 ${acc.appId}", style = Ty.title3) },
         text = {
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = appId,
                     onValueChange = { appId = it.trim() },
@@ -268,14 +285,12 @@ private fun AccountEditor(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                // ---- 人格 ----
                 Spacer(Modifier.height(D.s3))
                 Text("绑哪个人格", style = Ty.caption, color = T.textDim)
-                Spacer(Modifier.height(D.s1))
                 personas.forEach { p ->
                     Row(
-                        Modifier.fillMaxWidth()
-                            .clickable { personaId = p.id }
-                            .padding(vertical = 6.dp),
+                        Modifier.fillMaxWidth().clickable { personaId = p.id }.padding(vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -288,6 +303,121 @@ private fun AccountEditor(
                     }
                 }
 
+                // ---- 访问模式：显式开关，不靠列表空不空来猜 ----
+                Spacer(Modifier.height(D.s3))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("只允许名单里的人", style = Ty.bodySm, color = T.text)
+                        Text(
+                            if (strict) "严格模式：名单外的私聊和群一律不回复"
+                            else "开放模式：谁发消息都回（自己用就选这个）",
+                            style = Ty.caption,
+                            color = if (strict) T.warn else T.textFaint,
+                        )
+                    }
+                    Switch(checked = strict, onCheckedChange = { strict = it })
+                }
+                if (!strict) {
+                    Text(
+                        "开放模式下名单其实是空的，下面加的人只是记一下——方便你以后转严格时直接用。",
+                        style = Ty.caption, color = T.textFaint,
+                    )
+                }
+
+                // ---- 待批准 ----
+                if (pendingPeople.isNotEmpty() || pendingGroups.isNotEmpty()) {
+                    Spacer(Modifier.height(D.s3))
+                    Text("找过它的（${pending.size}）", style = Ty.caption, color = T.warn)
+                    Text("在 QQ 上发过消息的，点一下收进名单。", style = Ty.caption, color = T.textFaint)
+                    pending.forEach { (id, ts) ->
+                        val g = QqAccounts.isGroupKey(id)
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (g) "群 …${id.removePrefix("g:").takeLast(8)}" else "…${id.takeLast(10)}",
+                                    style = Ty.caption, color = T.text,
+                                )
+                                Text(agoShort(ts), style = Ty.caption, color = T.textFaint)
+                            }
+                            Text(
+                                "加入", style = Ty.caption, color = T.ok,
+                                modifier = Modifier.clickable {
+                                    if (g) {
+                                        val bare = id.removePrefix("g:")
+                                        if (!groups.contains(bare)) groups = groups + bare
+                                    } else {
+                                        if (!people.contains(id)) people = people + id
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // ---- 人 ----
+                Spacer(Modifier.height(D.s3))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = manualId,
+                        onValueChange = { manualId = it.trim() },
+                        label = { Text("手动加 openid") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(D.s2))
+                    Pill("加到人") {
+                        if (manualId.isNotBlank() && !people.contains(manualId)) {
+                            people = people + manualId; manualId = ""
+                        }
+                    }
+                }
+                if (people.isNotEmpty()) {
+                    people.forEach { id ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("人 …${id.takeLast(10)}", style = Ty.caption, color = T.textDim, modifier = Modifier.weight(1f))
+                            Text("移出", style = Ty.caption, color = T.danger,
+                                modifier = Modifier.clickable { people = people - id })
+                        }
+                    }
+                }
+
+                // ---- 群 ----
+                Spacer(Modifier.height(D.s3))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = "",
+                        onValueChange = {},
+                        label = { Text("群 openid 只能从上面的「找过它的」里收") },
+                        enabled = false,
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (groups.isNotEmpty()) {
+                    groups.forEach { g ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("群 …${g.takeLast(8)}", style = Ty.caption, color = T.textDim, modifier = Modifier.weight(1f))
+                            Text("移出", style = Ty.caption, color = T.danger,
+                                modifier = Modifier.clickable { groups = groups - g })
+                        }
+                    }
+                }
+
+                // ---- 群主动发话 ----
                 Spacer(Modifier.height(D.s3))
                 Row(
                     Modifier.fillMaxWidth(),
@@ -297,77 +427,11 @@ private fun AccountEditor(
                     Column(Modifier.weight(1f)) {
                         Text("群聊主动发话", style = Ty.bodySm, color = T.text)
                         Text(
-                            "开着就发到白名单里的群，而不是私聊。群里聊得多的时候开这个更自然。",
+                            "开着就发到上面的群，而不是私聊",
                             style = Ty.caption, color = T.textFaint,
                         )
                     }
                     Switch(checked = groupPro, onCheckedChange = { groupPro = it })
-                }
-
-                Spacer(Modifier.height(D.s3))
-                Text("白名单（${whitelist.size}）", style = Ty.caption, color = T.textDim)
-                Text(
-                    "私聊时腾讯的「内部体验号码」已经挡了一层，这里的价值在群：群被拉进去之后，" +
-                        "群里任何人都能 @ 它，得靠这个名单决定回不回。",
-                    style = Ty.caption, color = T.textFaint,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = manualId,
-                        onValueChange = { manualId = it.trim() },
-                        label = { Text("手动加 openid") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(D.s2))
-                    Pill("添加") {
-                        if (manualId.isNotBlank() && !whitelist.contains(manualId)) {
-                            whitelist = whitelist + manualId
-                            manualId = ""
-                        }
-                    }
-                }
-                if (whitelist.isNotEmpty()) {
-                    whitelist.forEach { id ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(tail(id), style = Ty.caption, color = T.textFaint, modifier = Modifier.weight(1f))
-                            Text(
-                                "移出", style = Ty.caption, color = T.danger,
-                                modifier = Modifier.clickable { whitelist = whitelist - id }
-                            )
-                        }
-                    }
-                }
-
-                if (pending.isNotEmpty()) {
-                    Spacer(Modifier.height(D.s3))
-                    Text("待批准（${pending.size}）", style = Ty.caption, color = T.warn)
-                    Text(
-                        "这些人在 QQ 上找过它，但不在白名单里，没有回复。",
-                        style = Ty.caption, color = T.textFaint
-                    )
-                    // 账号必须已经存在（新账号还没有 openid 记录）
-                    pending.forEach { (id, _) ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(tail(id), style = Ty.caption, color = T.text, modifier = Modifier.weight(1f))
-                            Text(
-                                "允许", style = Ty.caption, color = T.ok,
-                                modifier = Modifier.clickable {
-                                    QqAccounts.allow(ctx, acc.appId, id)
-                                    whitelist = whitelist + id
-                                    vm.toast = "已允许"
-                                }
-                            )
-                        }
-                    }
                 }
 
                 if (testResult.isNotBlank()) {
@@ -376,19 +440,16 @@ private fun AccountEditor(
                 }
 
                 Spacer(Modifier.height(D.s2))
-                Row(horizontalArrangement = Arrangement.spacedBy(D.s3)) {
-                    Pill(if (busy) "验证中…" else "验证凭据") {
-                        if (busy) return@Pill
-                        busy = true
-                        scope.launch {
-                            val r = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    QqBot.test(ctx, QqAccount(appId = appId, secret = secret))
-                                }.getOrElse { "失败：${it.message}" }
-                            }
-                            testResult = r
-                            busy = false
+                Pill(if (busy) "验证中…" else "验证凭据") {
+                    if (busy) return@Pill
+                    busy = true
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            runCatching { QqBot.test(ctx, QqAccount(appId = appId, secret = secret)) }
+                                .getOrElse { "失败：${it.message}" }
                         }
+                        testResult = r
+                        busy = false
                     }
                 }
             }
@@ -397,11 +458,22 @@ private fun AccountEditor(
             TextButton(onClick = {
                 if (appId.isBlank()) { vm.toast = "AppID 不能空"; return@TextButton }
                 if (personaId.isBlank()) { vm.toast = "选一个人格"; return@TextButton }
+                // 严格模式但一个名单都没有 = 谁都聊不了，等于坏了
+                if (strict && people.isEmpty() && groups.isEmpty()) {
+                    vm.toast = "严格模式下至少要有一个白名单，否则谁都不回"
+                    return@TextButton
+                }
                 QqAccounts.upsert(
                     ctx,
                     QqAccount(
-                        appId = appId, secret = secret, personaId = personaId,
-                        whitelist = whitelist, enabled = acc.enabled, groupProactive = groupPro,
+                        appId = appId,
+                        secret = secret,
+                        personaId = personaId,
+                        people = people,
+                        groups = groups,
+                        mode = if (strict) QqAccount.MODE_STRICT else QqAccount.MODE_OPEN,
+                        enabled = acc.enabled,
+                        groupProactive = groupPro,
                     )
                 )
                 vm.toast = if (isNew) "已添加" else "已保存"
@@ -410,6 +482,16 @@ private fun AccountEditor(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+private fun agoShort(ts: Long): String {
+    val d = System.currentTimeMillis() - ts
+    return when {
+        d < 60_000 -> "刚刚"
+        d < 3_600_000 -> "${d / 60_000} 分钟前"
+        d < 86_400_000L -> "${d / 3_600_000} 小时前"
+        else -> "${d / 86_400_000L} 天前"
+    }
 }
 
 private fun tail(openId: String): String = when {
