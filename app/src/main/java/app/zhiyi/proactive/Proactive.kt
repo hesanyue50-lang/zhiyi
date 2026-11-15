@@ -326,7 +326,15 @@ ${plans.ifBlank { "（无）" }}
             }
         }
         db.logProactive(s, true, why)
-        Notifier.show(ctx, persona.name, text, pid)
+        // 渠道是**按人格**设置的：
+        //   auto（默认）——配了 QQ 就走 QQ，发不出去再退回通知（人就在 QQ 那边，塞通知栏看不见）
+        //   qq          ——只走 QQ，失败就是失败，不要再发通知（否则两处同时冒出来）
+        //   app         ——只发通知
+        val channel = db.get("pro_channel_$pid", "auto")
+        val sentToQq = channel != "app" && app.zhiyi.qq.QqOut.send(ctx, pid, text)
+        if (!sentToQq && channel != "qq") {
+            Notifier.show(ctx, persona.name, text, pid)
+        }
         return true
     }
 
@@ -505,5 +513,9 @@ class ReplyReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         if (Prefs.get(ctx).data.proactiveEnabled) ProactiveAlarm.schedule(ctx)
+        // QQ 长连接：开过就跟着开机拉起来，否则重启手机后她在 QQ 里就哑了
+        if (app.zhiyi.qq.QqAccounts.all(app.zhiyi.data.Db.get(ctx)).any { it.enabled && it.ready }) {
+            runCatching { app.zhiyi.qq.QqService.start(ctx) }
+        }
     }
 }
