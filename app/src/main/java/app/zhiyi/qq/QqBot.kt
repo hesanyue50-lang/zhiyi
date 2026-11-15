@@ -97,7 +97,86 @@ object QqBot {
     private fun onEvent(ctx: Context, acc: QqAccount, type: String, d: JSONObject) {
         when (type) {
             "C2C_MESSAGE_CREATE" -> handleC2C(ctx, acc, d)
+            "GROUP_AT_MESSAGE_CREATE" -> handleGroup(ctx, acc, d)
             "C2C_MSG_REJECT" -> { lastError = "用户在 QQ 资料卡关闭了「允许主动发送」" }
+        }
+    }
+
+    /**
+     * 群聊：只在被 @ 时回复（订阅的是 GROUP_AT_MESSAGE_CREATE，不是全量消息）。
+     *
+     * 两处和私聊不同：
+     * 1. 被动回复窗口是 **5 分钟 / 5 次**（私聊 60 分钟 / 4 次），群里更要克制；
+     * 2. 记忆用**群级**（scope = g:<group_openid>），不是按人分——
+     *    否则她在群里对 A 说"你上次提到…"时，B 完全接不上话，像两个人各聊各的。
+     *    但每次会告诉模型这话是谁说的，免得把 A 的事安到 B 头上。
+     */
+    private fun handleGroup(ctx: Context, acc: QqAccount, d: JSONObject) {
+        val msgId = d.optString("id", "")
+        val groupId = d.optString("group_openid", "")
+        val memberId = d.optJSONObject("author")?.optString("member_openid", "").orEmpty()
+        var content = d.optString("content", "").trim()
+        if (msgId.isBlank() || groupId.isBlank() || content.isBlank()) return
+
+        // 群里 content 前面带 <@!bot_id> 这类标记，去掉
+        content = content.replace(Regex("<@!?[^>]*>"), "").trim()
+        if (content.isBlank()) return
+
+        val now = System.currentTimeMillis()
+        if (seen.putIfAbsent("${acc.appId}:$msgId", now) != null) return
+        if (seen.size > 300) {
+            val cut = now - 10 * 60_000
+            seen.entries.removeIf { it.value < cut }
+        }
+
+        val groupKey = "g:$groupId"
+        scope.launch {
+            val db = Db.get(ctx)
+            try {
+                // 群也要在白名单里，否则谁把机器人拉进群都能用
+                if (!QqAccounts.allowed(acc, groupKey)) {
+                    QqAccounts.pendingAdd(ctx, acc.appId, groupKey)
+                    return@launch
+                }
+                var pid = acc.personaId
+                if (pid.isBlank()) pid = db.personas().firstOrNull()?.id ?: ""
+                if (pid.isBlank()) {
+                    QqApi.sendGroup(ctx, acc, groupId, "还没有人格，去 App 里建一个。", msgId, 1)
+                    return@launch
+                }
+
+                // 记忆按群分
+                val memScope = groupKey
+                val speaker = if (memberId.length > 10) "…" + memberId.takeLast(8) else memberId
+                val task = "（补充：这条是群里发的，说话的人是【$speaker】。群里有别人，别把别人的事安到他头上；" +
+                    "回复简短一点，像群里插一句话。）"
+
+                ChatCore.saveUserMsg(ctx, content, explicitPid = pid, scope = memScope)
+                val raw = ChatCore.reply(ctx, explicitPid = pid, scene = "qq", scope = memScope, task = task)
+                QqCommand.rememberOpenId(db, acc.appId, pid, groupId)   // 主动发话也能发到群
+
+                val p = runCatching { db.persona(pid) }.getOrNull()
+                val pre = p?.sayPrefix?.ifBlank { "「" } ?: "「"
+                val suf = p?.saySuffix?.ifBlank { "」" } ?: "」"
+                val stickerKw = QqText.stickerKeyword(raw)
+                val speech = QqText.onlySpeech(QqText.removeStickerTag(raw), pre, suf)
+
+                var seq = 1
+                // 群聊最多 5 次，留 1 次给表情 → 文本最多 3 条
+                for (part in QqText.lines(speech, maxLines = 3)) {
+                    if (part.isBlank()) continue
+                    QqApi.sendGroup(ctx, acc, groupId, part, msgId, seq)
+                    seq++
+                }
+                if (stickerKw != null && seq <= 5) {
+                    runCatching { QqMedia.sendRandomStickerGroup(ctx, acc, groupId, msgId, seq, stickerKw) }
+                }
+            } catch (e: Throwable) {
+                lastError = e.message ?: e.javaClass.simpleName
+                runCatching {
+                    QqApi.sendGroup(ctx, acc, groupId, "（她好像卡了一下：${(e.message ?: "未知错误").take(50)}）", msgId, 1)
+                }
+            }
         }
     }
 
@@ -149,7 +228,7 @@ object QqBot {
                 val pre = p?.sayPrefix?.ifBlank { "「" } ?: "「"
                 val suf = p?.saySuffix?.ifBlank { "」" } ?: "」"
 
-                val sticker = QqText.wantsSticker(raw)
+                val stickerKw = QqText.stickerKeyword(raw)
                 val speech = QqText.onlySpeech(QqText.removeStickerTag(raw), pre, suf)
 
                 // 同一条原消息最多回 4 次：文本最多 3 片，留 1 次给表情
@@ -159,8 +238,8 @@ object QqBot {
                     QqApi.sendC2C(ctx, acc, openId, part, msgId, seq)
                     seq++
                 }
-                if (sticker && seq <= 4) {
-                    runCatching { QqMedia.sendRandomSticker(ctx, acc, openId, msgId, seq) }
+                if (stickerKw != null && seq <= 4) {
+                    runCatching { QqMedia.sendRandomSticker(ctx, acc, openId, msgId, seq, stickerKw) }
                 }
             } catch (e: Throwable) {
                 lastError = e.message ?: e.javaClass.simpleName
