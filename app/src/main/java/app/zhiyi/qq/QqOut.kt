@@ -40,7 +40,7 @@ object QqOut {
         // 主动推送是 HTTP 调用，不依赖 WebSocket 长连接——
         // 服务被系统杀掉时照样能发，别因为 isRunning 就把这条路堵死
         if (acc.groupProactive) return acc.groups.isNotEmpty()
-        return QqCommand.openIdFor(db, acc.appId, pid).isNotBlank()
+        return QqCommand.openIdFor(db, acc.appId, pid, group = false).isNotBlank()
     }
 
     /**
@@ -51,7 +51,7 @@ object QqOut {
         if (!ready(ctx, pid)) return false
         val db = Db.get(ctx)
         val acc = accountFor(db, pid) ?: return false
-        val openId = QqCommand.openIdFor(db, acc.appId, pid)
+        val openId = QqCommand.openIdFor(db, acc.appId, pid, group = false)
         if (blocked(db, pid, openId)) return false
 
         val p = runCatching { db.persona(pid) }.getOrNull()
