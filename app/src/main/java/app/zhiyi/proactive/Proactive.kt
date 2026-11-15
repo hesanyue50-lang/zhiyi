@@ -168,10 +168,15 @@ object Proactive {
         if (!test && lastUser0 > 0 && System.currentTimeMillis() - lastUser0 < 30 * 60_000L) return false
         // 最小间隔 / 每日上限 / 退避：原来是 score() 里返回 0，force 会绕过，现在搬到这里
         if (!test) {
+            // 全局冷却：不管哪个人格刚说过话，都先等一会儿。
+            // 不加这条的话，4 个人格各按自己 15 分钟一轮跑，看起来像排队轮流冒泡。
+            val lastAny = db.getNum("pro_last_any_ts", 0)
+            if (lastAny > 0 && System.currentTimeMillis() - lastAny < 40 * 60_000L) return false
             val lastPro0 = db.getNum("last_proactive_ts_$pid", 0)
             // 首次运行（装好/重装清数据后）只播种时间，不要"打开 App 立刻冒一条"
             if (lastPro0 == 0L) {
                 db.putNum("last_proactive_ts_$pid", System.currentTimeMillis())
+        db.putNum("pro_last_any_ts", System.currentTimeMillis())
                 return false
             }
             if (lastPro0 > 0 && System.currentTimeMillis() - lastPro0 < cfg.minGapMin * 60_000L) return false
@@ -198,6 +203,15 @@ object Proactive {
         need += 0.20 * hStress      // 还绷着就不想开口
         need -= 0.10 * hJoy         // 心情好更愿意撩一下
         need -= 0.06 * hRumi        // 心里反复想着某件事 → 更想找他确认
+        // 每个性格格不一样：首次随机定一个活跃度偏移并持久化，
+        // 让活泼的那个更常开口、冷淡的那个更少吭声，而不是人人同一个门槛。
+        val biasRaw = db.getNum("pro_bias_$pid", Long.MIN_VALUE)
+        val bias = if (biasRaw == Long.MIN_VALUE) {
+            val v = kotlin.random.Random.nextInt(-10, 11)      // -0.10 ~ +0.10
+            db.putNum("pro_bias_$pid", v.toLong())
+            v
+        } else biasRaw.toInt()
+        need += bias / 100.0
         need = need.coerceIn(0.50, 0.95) + 0.05 * streak.coerceAtMost(3)
         if (!force && s < need) return false
 
