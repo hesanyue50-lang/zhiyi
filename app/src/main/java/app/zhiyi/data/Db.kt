@@ -397,6 +397,26 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "zhiyi.db", n
     }
 
     /** 分页读事实：记忆页滚动加载用，避免一次读全量 */
+    /** 一个会话的概览（QQ 那侧的记忆按 "pid#openid" 存，这里把它们列出来） */
+    data class ThreadStat(val key: String, val msgs: Int, val lastTs: Long)
+
+    /**
+     * 列出所有"带作用域的"会话（pid 里含 #），也就是 QQ 那边每个人/每个群各一条的记忆线。
+     * App 主界面用的是裸 pid，所以这些会话默认看不到——需要单独的入口去翻。
+     */
+    fun scopedThreads(): List<ThreadStat> {
+        val out = ArrayList<ThreadStat>()
+        readableDatabase.rawQuery(
+            "SELECT pid, COUNT(*), MAX(ts) FROM msg WHERE pid LIKE '%#%' GROUP BY pid ORDER BY MAX(ts) DESC LIMIT 100",
+            null,
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(ThreadStat(c.getString(0), c.getInt(1), c.getLong(2)))
+            }
+        }
+        return out
+    }
+
     fun factsPage(pid: String, offset: Int, limit: Int): List<Fact> {
         val out = ArrayList<Fact>()
         readableDatabase.rawQuery(
