@@ -24,8 +24,8 @@ android {
         applicationId = "app.zhiyi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 164
-        versionName = "10.81"
+        versionCode = 175
+        versionName = "10.92"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     lint {
@@ -67,6 +67,8 @@ kotlin {
 }
 
 dependencies {
+    // 仅 JVM 单测用（WsClient 等纯 Java 逻辑可以脱离设备验证）
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
