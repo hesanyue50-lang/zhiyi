@@ -31,7 +31,7 @@ object QqCommand {
         db.get(if (group) "qq_group_${appId}_$pid" else "qq_openid_${appId}_$pid", "")
 
     /** 处理指令。返回 null 表示"这不是指令，去走模型" */
-    fun handle(ctx: Context, acc: QqAccount, openId: String, raw: String): String? {
+    fun handle(ctx: Context, acc: QqAccount, targetId: String, raw: String, group: Boolean = false): String? {
         val t = raw.trim()
         if (!t.startsWith("/") && !t.startsWith("／")) return null
         if (t.length > 24) return null
@@ -47,8 +47,9 @@ object QqCommand {
                 val p = db.persona(acc.personaId)
                 if (p == null) "这个机器人还没绑人格，去 App 里「QQ」页面设一个" else "现在陪你的是「${p.name}」"
             }
-            "状态", "status" -> statusText(ctx, db, acc, openId)
-            "记忆", "mem" -> memText(db, acc, openId)
+            "状态", "status" -> statusText(ctx, db, acc, targetId, group)
+            "记忆", "mem" -> memText(db, acc, targetId, group)
+            "心情", "心境", "heart", "mood" -> heartText(db, acc)
             else -> "没有这条指令。发 /help 看看有哪些"
         }
     }
@@ -61,6 +62,7 @@ object QqCommand {
 /人格  —— 这个机器人绑的是谁
 /状态  —— 连接情况和记忆概况
 /记忆  —— 她记住了你哪些事
+/心情  —— 她的九维心境（括号里是寻常值）
 
 其他话我都当聊天，正常回你。
     """.trim()
@@ -78,9 +80,9 @@ object QqCommand {
         return sb.toString()
     }
 
-    private fun statusText(ctx: Context, db: Db, acc: QqAccount, openId: String): String {
+    private fun statusText(ctx: Context, db: Db, acc: QqAccount, targetId: String, group: Boolean): String {
         val p = db.persona(acc.personaId)
-        val memKey = "${acc.personaId}#$openId"
+        val memKey = if (group) "g:$targetId" else "${acc.personaId}#$targetId"
         val facts = runCatching { db.factsPage(memKey, 0, 999).size }.getOrDefault(0)
         val msgs = runCatching { db.recentMsgs(memKey, 999).size }.getOrDefault(0)
         return """
@@ -91,9 +93,35 @@ object QqCommand {
         """.trim()
     }
 
-    private fun memText(db: Db, acc: QqAccount, openId: String): String {
+    /**
+     * 九维心境。每行一个维度，后面括号里是"寻常值"（这个维度的基准），
+     * 这样她偏高偏低一眼看得出来。
+     */
+    private fun heartText(db: Db, acc: QqAccount): String {
         val p = db.persona(acc.personaId) ?: return "这个机器人还没绑人格"
-        val memKey = "${acc.personaId}#$openId"
+        val live = runCatching { app.zhiyi.memory.Heart.panel(db, p.id) }.getOrDefault(emptyList())
+        val sb = StringBuilder("她现在的状态（${p.name}）：\n")
+        app.zhiyi.memory.Heart.Dim.entries.forEach { d ->
+            val label = d.label
+            val norm = d.base.toInt()
+            // 先按名字找，找不到再按顺序兜底
+            val v = live.firstOrNull { it.first == label }?.second
+                ?: live.getOrNull(app.zhiyi.memory.Heart.Dim.entries.indexOf(d))?.second
+                ?: norm
+            val mark = when {
+                v >= norm + 20 -> "↑"
+                v <= norm - 20 -> "↓"
+                else -> " "
+            }
+            sb.append(label).append(' ').append(mark).append(' ')
+                .append(v).append("（寻常 ").append(norm).append("）\n")
+        }
+        return sb.toString().trim()
+    }
+
+    private fun memText(db: Db, acc: QqAccount, targetId: String, group: Boolean): String {
+        val p = db.persona(acc.personaId) ?: return "这个机器人还没绑人格"
+        val memKey = if (group) "g:$targetId" else "${acc.personaId}#$targetId"
         val facts = runCatching { db.factsPage(memKey, 0, 999) }.getOrDefault(emptyList())
         if (facts.isEmpty()) return "「${p.name}」现在还什么都没记住。多聊几句就有了。"
         val sb = StringBuilder("「${p.name}」记住了关于你的这些：\n")
