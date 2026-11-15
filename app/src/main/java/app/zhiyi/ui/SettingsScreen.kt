@@ -63,32 +63,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.collapsible(
     hint: String,
     open: Boolean,
     onToggle: () -> Unit,
-    content: @androidx.compose.runtime.Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
-    item("g_$key", contentType = "group") {
-        Column {
-            CollapsibleHeader(title, hint, open, onToggle)
-            // 展开用 spring：带一丝弹性，像有东西被真的"放下来"
-            // 收起用 tween：弹簧收缩会回弹一下，反而像卡了一下
-            androidx.compose.animation.AnimatedVisibility(
-                visible = open,
-                enter = androidx.compose.animation.expandVertically(
-                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 380f),
-                    expandFrom = Alignment.Top,
-                ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
-                exit = androidx.compose.animation.shrinkVertically(
-                    animationSpec = androidx.compose.animation.core.tween(
-                        220, easing = androidx.compose.animation.core.FastOutLinearInEasing
-                    ),
-                    shrinkTowards = Alignment.Top,
-                ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
-            ) {
-                Column(Modifier.padding(top = D.s4), verticalArrangement = Arrangement.spacedBy(D.s4)) {
-                    content()
-                }
-            }
-        }
+    item("h_$key", contentType = "header") {
+        CollapsibleHeader(title, hint, open, onToggle)
     }
+    if (open) content()
 }
 
 @Composable
@@ -284,7 +264,7 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
         verticalArrangement = Arrangement.spacedBy(D.s5),
     ) {
         item("title", contentType = "title") {
-            Column {
+            Column(Modifier.animateItem()) {
                 Spacer(Modifier.height(D.s2))
                 Text("设置", style = Ty.display, color = T.text)
                 Text("一切都在本地，只有对话内容会发给你选的模型", style = Ty.caption, color = T.textFaint)
@@ -294,211 +274,170 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
         // ---------------- API ----------------
 
         collapsible("role", "角色", "人格设定 · 记忆 · 主动发话", "role" in openGroups, { toggleGroup("role") }) {
-        Column {
-            Label("人格", Modifier.padding(start = D.s4, bottom = D.s2))
+        item("persona", contentType = "persona") {
+            Column(Modifier.animateItem()) {
+                Label("人格", Modifier.padding(start = D.s4, bottom = D.s2))
 
-            // 每个人格一张卡：头像 + 名字 + 它绑定的世界观
-            vm.personas.forEachIndexed { idx, ps ->
-                val world = remember(ps.id, vm.worlds) { vm.worlds.firstOrNull { it.id == ps.worldId } }
-                GlassCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(D.s4), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(ps.name)
-                        Spacer(Modifier.width(D.s3))
-                        Column(Modifier.weight(1f)) {
-                            Row(
-                                Modifier.fillMaxWidth().clickable {
-                                    editingPersona = ps; showPersonaEdit = true
-                                },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(ps.name, style = Ty.title3, color = T.text, modifier = Modifier.weight(1f))
-                                Text("编辑", style = Ty.caption, color = T.textDim)
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            Row(
-                                Modifier.fillMaxWidth().clickable { onOpenWorld(ps.id) },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    world?.let { "${it.name} · ${it.entries.size} 条" } ?: "未绑定世界观 · 点这里设置",
-                                    style = Ty.caption,
-                                    color = if (world == null) T.textFaint else T.accent,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text("›", style = Ty.caption, color = T.textFaint)
+                // 每个人格一张卡：头像 + 名字 + 它绑定的世界观
+                vm.personas.forEachIndexed { idx, ps ->
+                    val world = remember(ps.id, vm.worlds) { vm.worlds.firstOrNull { it.id == ps.worldId } }
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(D.s4), verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(ps.name)
+                            Spacer(Modifier.width(D.s3))
+                            Column(Modifier.weight(1f)) {
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        editingPersona = ps; showPersonaEdit = true
+                                    },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(ps.name, style = Ty.title3, color = T.text, modifier = Modifier.weight(1f))
+                                    Text("编辑", style = Ty.caption, color = T.textDim)
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { onOpenWorld(ps.id) },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        world?.let { "${it.name} · ${it.entries.size} 条" } ?: "未绑定世界观 · 点这里设置",
+                                        style = Ty.caption,
+                                        color = if (world == null) T.textFaint else T.accent,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text("›", style = Ty.caption, color = T.textFaint)
+                                }
                             }
                         }
                     }
+                    Spacer(Modifier.height(D.s2))
                 }
-                Spacer(Modifier.height(D.s2))
-            }
 
-            if (vm.personas.isEmpty()) {
+                if (vm.personas.isEmpty()) {
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        SettingRow("恢复内置人格", "两个人格示例，带开场白", value = "恢复", valueAsButton = true,
+                            onClick = { vm.restoreBuiltins() })
+                    }
+                    Spacer(Modifier.height(D.s2))
+                }
+
                 GlassCard(Modifier.fillMaxWidth()) {
-                    SettingRow("恢复内置人格", "两个人格示例，带开场白", value = "恢复", valueAsButton = true,
-                        onClick = { vm.restoreBuiltins() })
-                }
-                Spacer(Modifier.height(D.s2))
-            }
-
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column {
-                    SettingRow("新建人格", "不用导入，从空白开始写", value = "新建", valueAsButton = true,
-                        onClick = { editingPersona = null; showPersonaEdit = true })
-                    InnerDivider()
-                    SettingRow(
-                        "导入", "PNG 角色卡 / JSON 人格 / 世界观，自动识别", value = "选择", valueAsButton = true,
-                        onClick = {
-                            pickAny.launch(
-                                arrayOf("image/*", "application/json", "text/plain", "application/octet-stream", "*/*")
-                            )
-                        },
-                    )
-                    if (vm.toast != null) {
+                    Column(Modifier.animateItem()) {
+                        SettingRow("新建人格", "不用导入，从空白开始写", value = "新建", valueAsButton = true,
+                            onClick = { editingPersona = null; showPersonaEdit = true })
                         InnerDivider()
-                        Box(Modifier.padding(horizontal = D.s4, vertical = D.s2)) {
-                            Text(vm.toast ?: "", style = Ty.caption, color = T.accent)
+                        SettingRow(
+                            "导入", "PNG 角色卡 / JSON 人格 / 世界观，自动识别", value = "选择", valueAsButton = true,
+                            onClick = {
+                                pickAny.launch(
+                                    arrayOf("image/*", "application/json", "text/plain", "application/octet-stream", "*/*")
+                                )
+                            },
+                        )
+                        if (vm.toast != null) {
+                            InnerDivider()
+                            Box(Modifier.padding(horizontal = D.s4, vertical = D.s2)) {
+                                Text(vm.toast ?: "", style = Ty.caption, color = T.accent)
+                            }
                         }
                     }
                 }
             }
         }
 
-        Column {
-            Label("记忆与上下文", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SegmentRow("上下文预算", listOf("4K", "6K", "8K", "16K"),
-                        listOf(4000, 6000, 8000, 16000).indexOf(cfg.ctxTokens).takeIf { it >= 0 } ?: 1
-                    ) { i -> vm.saveCfg(cfg.copy(ctxTokens = listOf(4000, 6000, 8000, 16000)[i])) }
-                    InnerDivider()
-                    SegmentRow("压缩间隔", listOf("10条", "20条", "40条"),
-                        listOf(10, 20, 40).indexOf(cfg.summarizeEvery).takeIf { it >= 0 } ?: 1
-                    ) { i -> vm.saveCfg(cfg.copy(summarizeEvery = listOf(10, 20, 40)[i])) }
-                    InnerDivider()
-                    SegmentRow("抽取频率", listOf("每2轮", "每3轮", "每6轮"),
-                        listOf(2, 3, 6).indexOf(cfg.factsEvery).takeIf { it >= 0 } ?: 1
-                    ) { i -> vm.saveCfg(cfg.copy(factsEvery = listOf(2, 3, 6)[i])) }
-                    InnerDivider()
-                    SettingRow(
-                        "向量召回", "填了 embedding 模型才生效",
-                        trailing = {
-                            Toggle(cfg.embedEnabled, { v -> vm.saveCfg(cfg.copy(embedEnabled = v)) })
-                        },
-                    )
+        item("mem", contentType = "mem") {
+            Column(Modifier.animateItem()) {
+                Label("记忆与上下文", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SegmentRow("上下文预算", listOf("4K", "6K", "8K", "16K"),
+                            listOf(4000, 6000, 8000, 16000).indexOf(cfg.ctxTokens).takeIf { it >= 0 } ?: 1
+                        ) { i -> vm.saveCfg(cfg.copy(ctxTokens = listOf(4000, 6000, 8000, 16000)[i])) }
+                        InnerDivider()
+                        SegmentRow("压缩间隔", listOf("10条", "20条", "40条"),
+                            listOf(10, 20, 40).indexOf(cfg.summarizeEvery).takeIf { it >= 0 } ?: 1
+                        ) { i -> vm.saveCfg(cfg.copy(summarizeEvery = listOf(10, 20, 40)[i])) }
+                        InnerDivider()
+                        SegmentRow("抽取频率", listOf("每2轮", "每3轮", "每6轮"),
+                            listOf(2, 3, 6).indexOf(cfg.factsEvery).takeIf { it >= 0 } ?: 1
+                        ) { i -> vm.saveCfg(cfg.copy(factsEvery = listOf(2, 3, 6)[i])) }
+                        InnerDivider()
+                        SettingRow(
+                            "向量召回", "填了 embedding 模型才生效",
+                            trailing = {
+                                Toggle(cfg.embedEnabled, { v -> vm.saveCfg(cfg.copy(embedEnabled = v)) })
+                            },
+                        )
+                    }
                 }
             }
         }
 
         // ---------------- 主动发话 ----------------
 
-        Column {
-            Label("主动发话", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SettingRow(
-                        "让她主动找你", if (cfg.proactiveEnabled) "每 15 分钟检查一次" else "当前关闭",
-                        trailing = {
-                            Toggle(cfg.proactiveEnabled, { v ->
-                                if (v && Build.VERSION.SDK_INT >= 33)
-                                    askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                vm.saveCfg(cfg.copy(proactiveEnabled = v))
-                                if (v) showProGuide = true
-                            })
-                        },
-                    )
-                    InnerDivider()
-                    // 渠道是按人格存的：一个人格可能配了 QQ、另一个没配，
-                    // 所以"从哪发"不能是全局设置。
-                    val curPid = remember { ChatCore.activePersona(ctx).id }
-                    val chKey = "pro_channel_$curPid"
-                    var chTick by remember { mutableStateOf(0) }
-                    val ch = remember(chTick) { sdb.get(chKey, "auto") }
-                    SegmentRow(
-                        "从哪发",
-                        listOf("自动", "QQ", "App"),
-                        listOf("auto", "qq", "app").indexOf(ch).takeIf { it >= 0 } ?: 0,
-                    ) { i ->
-                        sdb.put(chKey, listOf("auto", "qq", "app")[i]); chTick++
-                    }
-                    Text(
-                        when (ch) {
-                            "qq" -> "只从 QQ 发。发不出去就算了，不会再弹通知。"
-                            "app" -> "只发手机通知，不走 QQ。"
-                            else -> "配了 QQ 就优先从 QQ 发（人就在那边，通知容易被忽略）；发不出去再弹通知。"
-                        },
-                        style = Ty.caption, color = T.textFaint,
-                        modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
-                    )
-                    // 黑名单：从绑定这个人格的机器人白名单里选谁可以被主动打扰
-                    val bindAcc = remember(chTick) {
-                        app.zhiyi.qq.QqAccounts.all(sdb).firstOrNull { it.personaId == curPid }
-                    }
-                    if (bindAcc != null && bindAcc.whitelist.isNotEmpty()) {
-                        InnerDivider()
-                        Text(
-                            "谁可以被主动打扰",
-                            style = Ty.caption, color = T.textDim,
-                            modifier = Modifier.padding(start = D.s4, top = D.s2, bottom = D.s1),
+        item("pro", contentType = "pro") {
+            Column(Modifier.animateItem()) {
+                Label("主动发话", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SettingRow(
+                            "让她主动找你", if (cfg.proactiveEnabled) "每 15 分钟检查一次" else "当前关闭",
+                            trailing = {
+                                Toggle(cfg.proactiveEnabled, { v ->
+                                    if (v && Build.VERSION.SDK_INT >= 33)
+                                        askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    vm.saveCfg(cfg.copy(proactiveEnabled = v))
+                                    if (v) showProGuide = true
+                                })
+                            },
                         )
-                        bindAcc.whitelist.forEach { oid ->
-                            val blocked = app.zhiyi.qq.QqOut.blocked(sdb, curPid, oid)
-                            SettingRow(
-                                if (oid.length <= 12) oid else "…" + oid.takeLast(10),
-                                if (blocked) "静音，她不会主动找他" else "可以主动找他",
-                                value = if (blocked) "静音中" else "允许",
-                                onClick = {
-                                    app.zhiyi.qq.QqOut.setBlocked(ctx, curPid, oid, !blocked)
-                                    chTick++
-                                },
+                        InnerDivider()
+                        SettingRow(
+                            "立即测试",
+                            "跳过评分，马上让她发一条（用来确认链路通不通）",
+                            trailing = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    vm.testProactive()
+                                }) { Text("测试") }
+                            },
+                        )
+                        if (cfg.proactiveEnabled) {
+                            InnerDivider()
+                            Text(
+                                "上次结果：" + vm.proactiveLastHint,
+                                style = Ty.caption, color = T.textFaint,
+                                modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
                             )
                         }
-                    }
-                    InnerDivider()
-                    SettingRow(
-                        "立即测试",
-                        "跳过评分，马上让她发一条（用来确认链路通不通）",
-                        trailing = {
-                            androidx.compose.material3.TextButton(onClick = {
-                                vm.testProactive()
-                            }) { Text("测试") }
-                        },
-                    )
-                    if (cfg.proactiveEnabled) {
                         InnerDivider()
-                        Text(
-                            "上次结果：" + vm.proactiveLastHint,
-                            style = Ty.caption, color = T.textFaint,
-                            modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
-                        )
+                        val qIdx = when {
+                            cfg.quietStart == cfg.quietEnd -> 3
+                            cfg.quietStart == 22 -> 0
+                            cfg.quietStart == 23 -> 1
+                            cfg.quietStart == 0 -> 2
+                            else -> 1
+                        }
+                        SegmentRow("免打扰", listOf("22-8", "23-7", "0-9", "关"), qIdx) { i ->
+                            val pairs = listOf(22 to 8, 23 to 7, 0 to 9, 0 to 0)
+                            vm.saveCfg(cfg.copy(quietStart = pairs[i].first, quietEnd = pairs[i].second))
+                        }
+                        InnerDivider()
+                        SegmentRow("每日上限", listOf("1", "2", "3", "5"),
+                            listOf(1, 2, 3, 5).indexOf(cfg.dailyCap).takeIf { it >= 0 } ?: 2
+                        ) { i -> vm.saveCfg(cfg.copy(dailyCap = listOf(1, 2, 3, 5)[i])) }
+                        InnerDivider()
+                        SegmentRow("总量上限（所有人物加起来）", listOf("3", "5", "8", "12"),
+                            listOf(3, 5, 8, 12).indexOf(cfg.totalDailyCap).takeIf { it >= 0 } ?: 1
+                        ) { i -> vm.saveCfg(cfg.copy(totalDailyCap = listOf(3, 5, 8, 12)[i])) }
+                        InnerDivider()
+                        SegmentRow("最小间隔", listOf("30分", "60分", "90分", "3时"),
+                            listOf(30, 60, 90, 180).indexOf(cfg.minGapMin).takeIf { it >= 0 } ?: 2
+                        ) { i -> vm.saveCfg(cfg.copy(minGapMin = listOf(30, 60, 90, 180)[i])) }
+                        InnerDivider()
                     }
-                    InnerDivider()
-                    val qIdx = when {
-                        cfg.quietStart == cfg.quietEnd -> 3
-                        cfg.quietStart == 22 -> 0
-                        cfg.quietStart == 23 -> 1
-                        cfg.quietStart == 0 -> 2
-                        else -> 1
-                    }
-                    SegmentRow("免打扰", listOf("22-8", "23-7", "0-9", "关"), qIdx) { i ->
-                        val pairs = listOf(22 to 8, 23 to 7, 0 to 9, 0 to 0)
-                        vm.saveCfg(cfg.copy(quietStart = pairs[i].first, quietEnd = pairs[i].second))
-                    }
-                    InnerDivider()
-                    SegmentRow("每日上限", listOf("1", "2", "3", "5"),
-                        listOf(1, 2, 3, 5).indexOf(cfg.dailyCap).takeIf { it >= 0 } ?: 2
-                    ) { i -> vm.saveCfg(cfg.copy(dailyCap = listOf(1, 2, 3, 5)[i])) }
-                    InnerDivider()
-                    SegmentRow("总量上限（所有人物加起来）", listOf("3", "5", "8", "12"),
-                        listOf(3, 5, 8, 12).indexOf(cfg.totalDailyCap).takeIf { it >= 0 } ?: 1
-                    ) { i -> vm.saveCfg(cfg.copy(totalDailyCap = listOf(3, 5, 8, 12)[i])) }
-                    InnerDivider()
-                    SegmentRow("最小间隔", listOf("30分", "60分", "90分", "3时"),
-                        listOf(30, 60, 90, 180).indexOf(cfg.minGapMin).takeIf { it >= 0 } ?: 2
-                    ) { i -> vm.saveCfg(cfg.copy(minGapMin = listOf(30, 60, 90, 180)[i])) }
-                    InnerDivider()
                 }
             }
         }
@@ -506,95 +445,99 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                 }
 
         collapsible("sound", "声音与表情", "TTS · 音色克隆 · 表情包", "sound" in openGroups, { toggleGroup("sound") }) {
-            Column {
+                    item("voice", contentType = "voice") {
+            Column(Modifier.animateItem()) {
                 Label("她的声音", Modifier.padding(start = D.s4, bottom = D.s2))
                 GlassCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(vertical = D.s1)) {
-                    // 预先算好每个人格绑了什么音色，避免在 forEach 里 remember（人数一变就崩）
-                    val binds = remember(vm.personas, voiceTick) {
-                        vm.personas.map { it.id to VoiceStore.describe(ctx, it.id) }
-                    }
-                    SettingRow(
-                        "MiMo API Key",
-                        if (vm.cfg.ttsKey.isBlank()) "声音克隆要用，去 platform.xiaomimimo.com 拿"
-                        else "已填写",
-                        value = if (vm.cfg.ttsKey.isBlank()) "未设置" else "修改",
-                        valueAsButton = true,
-                        onClick = {
-                            ttsKeyDraft = vm.cfg.ttsKey
-                            showTtsKey = true
-                        },
-                    )
-                    InnerDivider()
-                    if (vm.personas.isEmpty()) {
-                        Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
-                            Text("还没有人格，先去建一个再来绑音色。", style = Ty.caption, color = T.textFaint)
+                        // 预先算好每个人格绑了什么音色，避免在 forEach 里 remember（人数一变就崩）
+                        val binds = remember(vm.personas, voiceTick) {
+                            vm.personas.map { it.id to VoiceStore.describe(ctx, it.id) }
                         }
-                    } else {
-                        vm.personas.forEachIndexed { i, ps ->
-                            val d = binds.firstOrNull { it.first == ps.id }?.second ?: ""
-                            SettingRow(
-                                ps.name,
-                                if (d.isBlank()) "未绑定音色" else d,
-                                value = "选择",
-                                valueAsButton = true,
-                                onClick = {
-                                    voicePickPid = ps.id
-                                    showVoicePick = true
-                                },
-                            )
-                            if (i != vm.personas.size - 1) InnerDivider()
-                        }
-                    }
-                    InnerDivider()
-                    Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
-                        Text(
-                            "绑定之后，她的消息点喇叭、或桌宠开着声音时，都会用她自己这个音色。" +
-                                "样本 5~10 秒干净人声效果最好，带背景音乐会串味，上限 7MB。",
-                            style = Ty.caption, color = T.textFaint,
+                        SettingRow(
+                            "MiMo API Key",
+                            if (vm.cfg.ttsKey.isBlank()) "声音克隆要用，去 platform.xiaomimimo.com 拿"
+                            else "已填写",
+                            value = if (vm.cfg.ttsKey.isBlank()) "未设置" else "修改",
+                            valueAsButton = true,
+                            onClick = {
+                                ttsKeyDraft = vm.cfg.ttsKey
+                                showTtsKey = true
+                            },
                         )
+                        InnerDivider()
+                        if (vm.personas.isEmpty()) {
+                            Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
+                                Text("还没有人格，先去建一个再来绑音色。", style = Ty.caption, color = T.textFaint)
+                            }
+                        } else {
+                            vm.personas.forEachIndexed { i, ps ->
+                                val d = binds.firstOrNull { it.first == ps.id }?.second ?: ""
+                                SettingRow(
+                                    ps.name,
+                                    if (d.isBlank()) "未绑定音色" else d,
+                                    value = "选择",
+                                    valueAsButton = true,
+                                    onClick = {
+                                        voicePickPid = ps.id
+                                        showVoicePick = true
+                                    },
+                                )
+                                if (i != vm.personas.size - 1) InnerDivider()
+                            }
+                        }
+                        InnerDivider()
+                        Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
+                            Text(
+                                "绑定之后，她的消息点喇叭、或桌宠开着声音时，都会用她自己这个音色。" +
+                                    "样本 5~10 秒干净人声效果最好，带背景音乐会串味，上限 7MB。",
+                                style = Ty.caption, color = T.textFaint,
+                            )
+                        }
                     }
                 }
             }
         }
 
-        Column {
-            Label("表情包", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SettingRow(
-                        "允许联网抓表情", "关掉后完全不联网下载表情",
-                        trailing = { Toggle(cfg.stickerCrawl, { v -> vm.saveCfg(cfg.copy(stickerCrawl = v)) }) },
-                    )
-                    InnerDivider()
-                    Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
-                        Field(
-                            "表情接口地址（返回图片 URL 的 JSON）",
-                            stickerSrc,
-                            { stickerSrc = it; vm.saveCfg(cfg.copy(stickerSource = it)) },
-                            "https://example.com/stickers.json",
+        item("sticker", contentType = "sticker") {
+            Column(Modifier.animateItem()) {
+                Label("表情包", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SettingRow(
+                            "允许联网抓表情", "关掉后完全不联网下载表情",
+                            trailing = { Toggle(cfg.stickerCrawl, { v -> vm.saveCfg(cfg.copy(stickerCrawl = v)) }) },
                         )
-                        Spacer(Modifier.height(D.s2))
-                        Row(horizontalArrangement = Arrangement.spacedBy(D.s2)) {
-                            PillButton(
-                                if (crawling) "抓取中…" else "立即抓取",
-                                { crawlNow() },
-                                Modifier.weight(1f), enabled = cfg.stickerCrawl && !crawling,
-                                height = 40.dp, labelStyle = Ty.bodySm,
+                        InnerDivider()
+                        Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
+                            Field(
+                                "表情接口地址（返回图片 URL 的 JSON）",
+                                stickerSrc,
+                                { stickerSrc = it; vm.saveCfg(cfg.copy(stickerSource = it)) },
+                                "https://example.com/stickers.json",
                             )
-                            PillButton(
-                                "清空表情",
-                                { app.zhiyi.data.StickerStore.clearAll(ctx); vm.toast = "已清空表情" },
-                                Modifier.weight(1f), primary = false,
-                                height = 40.dp, labelStyle = Ty.bodySm,
+                            Spacer(Modifier.height(D.s2))
+                            Row(horizontalArrangement = Arrangement.spacedBy(D.s2)) {
+                                PillButton(
+                                    if (crawling) "抓取中…" else "立即抓取",
+                                    { crawlNow() },
+                                    Modifier.weight(1f), enabled = cfg.stickerCrawl && !crawling,
+                                    height = 40.dp, labelStyle = Ty.bodySm,
+                                )
+                                PillButton(
+                                    "清空表情",
+                                    { app.zhiyi.data.StickerStore.clearAll(ctx); vm.toast = "已清空表情" },
+                                    Modifier.weight(1f), primary = false,
+                                    height = 40.dp, labelStyle = Ty.bodySm,
+                                )
+                            }
+                            Spacer(Modifier.height(D.s2))
+                            Text(
+                                "已存 ${app.zhiyi.data.StickerStore.sizeMb(ctx)}KB · ${app.zhiyi.data.StickerStore.list(ctx).size} 张" +
+                                    (if (crawlMsg.isNotBlank()) " · $crawlMsg" else ""),
+                                style = Ty.caption, color = T.textFaint,
                             )
                         }
-                        Spacer(Modifier.height(D.s2))
-                        Text(
-                            "已存 ${app.zhiyi.data.StickerStore.sizeMb(ctx)}KB · ${app.zhiyi.data.StickerStore.list(ctx).size} 张" +
-                                (if (crawlMsg.isNotBlank()) " · $crawlMsg" else ""),
-                            style = Ty.caption, color = T.textFaint,
-                        )
                     }
                 }
             }
@@ -603,38 +546,42 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                 }
 
         collapsible("chat", "聊天与外观", "主题 · 聊天行为", "chat" in openGroups, { toggleGroup("chat") }) {
-            Column {
-            Label("外观", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                val idx = listOf("system", "dark", "light").indexOf(cfg.theme).coerceAtLeast(0)
-                SegmentRow("主题", listOf("跟随系统", "夜间", "日间"), idx) { i ->
-                    vm.saveCfg(cfg.copy(theme = listOf("system", "dark", "light")[i]))
+            item("theme", contentType = "theme") {
+            Column(Modifier.animateItem()) {
+                Label("外观", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    val idx = listOf("system", "dark", "light").indexOf(cfg.theme).coerceAtLeast(0)
+                    SegmentRow("主题", listOf("跟随系统", "夜间", "日间"), idx) { i ->
+                        vm.saveCfg(cfg.copy(theme = listOf("system", "dark", "light")[i]))
+                    }
                 }
             }
         }
 
-            Column {
+                item("chat", contentType = "chat") {
+            Column(Modifier.animateItem()) {
                 Label("对话", Modifier.padding(start = D.s4, bottom = D.s2))
                 GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SegmentRow(
-                        "思考强度（越低回得越快）",
-                        listOf("低", "中", "高"),
-                        when (cfg.reasoningEffort) {
-                            "medium" -> 1
-                            "high" -> 2
-                            else -> 0
-                        },
-                    ) { i ->
-                        vm.saveCfg(cfg.copy(reasoningEffort = listOf("low", "medium", "high")[i]))
-                    }
-                    InnerDivider()
-                    Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
-                        Text(
-                            "低＝保留推理想一遍就答，不磨叽；中＝多想一步；高＝想清楚再开口（更慢）。" +
-                                "如果网关不支持这个参数，就按模型默认走。",
-                            style = Ty.caption, color = T.textFaint,
-                        )
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SegmentRow(
+                            "思考强度（越低回得越快）",
+                            listOf("低", "中", "高"),
+                            when (cfg.reasoningEffort) {
+                                "medium" -> 1
+                                "high" -> 2
+                                else -> 0
+                            },
+                        ) { i ->
+                            vm.saveCfg(cfg.copy(reasoningEffort = listOf("low", "medium", "high")[i]))
+                        }
+                        InnerDivider()
+                        Column(Modifier.padding(horizontal = D.s4, vertical = D.s3)) {
+                            Text(
+                                "低＝保留推理想一遍就答，不磨叽；中＝多想一步；高＝想清楚再开口（更慢）。" +
+                                    "如果网关不支持这个参数，就按模型默认走。",
+                                style = Ty.caption, color = T.textFaint,
+                            )
+                        }
                     }
                 }
             }
@@ -645,251 +592,253 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                     }
 
         collapsible("pet", "桌宠", "立绘 · 看屏幕 · 气泡行为 · 权限", "pet" in openGroups, { toggleGroup("pet") }) {
-            Column {
+                    item("pet", contentType = "pet") {
+            Column(Modifier.animateItem()) {
                 Label("桌宠", Modifier.padding(start = D.s4, bottom = D.s2))
                 GlassCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(vertical = D.s1)) {
-                    SettingRow(
-                        "显示桌宠",
-                        if (cfg.petEnabled) "在桌面上陪着你" else "当前关闭",
-                        trailing = {
-                            Toggle(cfg.petEnabled, { v ->
-                                if (v && !android.provider.Settings.canDrawOverlays(ctx)) {
-                                    runCatching {
-                                        ctx.startActivity(
-                                            android.content.Intent(
-                                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                android.net.Uri.parse("package:${ctx.packageName}")
-                                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        )
-                                    }
-                                    vm.toast = "请先允许「显示在其他应用上层」，再回来打开"
-                                } else {
-                                    vm.saveCfg(cfg.copy(petEnabled = v))
-                                }
-                            })
-                        },
-                    )
-                    InnerDivider()
-                    Text(
-                        "她会以像素形象坐在桌面上，可自由拖动。需要「显示在其他应用上层」权限。",
-                        style = Ty.caption, color = T.textFaint,
-                        modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
-                    )
-                    InnerDivider()
-                    val prefsCfg = ctx.getSharedPreferences("cfg", android.content.Context.MODE_PRIVATE)
-                    var shotMode by androidx.compose.runtime.remember {
-                        androidx.compose.runtime.mutableStateOf(prefsCfg.getString("shot_mode", "projection") ?: "projection")
-                    }
-                    var shizukuOk by androidx.compose.runtime.remember {
-                        androidx.compose.runtime.mutableStateOf(app.zhiyi.pet.ScreenCapture.shizukuReady())
-                    }
-                    var pickShot by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-
-                    SettingRow(
-                        "识屏方式",
-                        when {
-                            shotMode == "auto" -> "自动（优先 ADB）"
-                            shotMode == "adb" -> if (shizukuOk) "ADB（已授权）" else "ADB（未授权）"
-                            else -> "共享屏幕（录屏授权）"
-                        },
-                        trailing = {
-                            androidx.compose.material3.TextButton(onClick = { pickShot = true }) { Text("切换") }
-                        },
-                    )
-                    if (shotMode == "adb" && !shizukuOk) {
                         SettingRow(
-                            "授权 ADB",
-                            if (app.zhiyi.pet.ScreenCapture.shizukuAvailable()) "点右侧申请 Shizuku 权限"
-                            else "还没装 Shizuku（或没启动）",
+                            "显示桌宠",
+                            if (cfg.petEnabled) "在桌面上陪着你" else "当前关闭",
                             trailing = {
-                                androidx.compose.material3.TextButton(onClick = {
-                                    runCatching {
-                                        if (app.zhiyi.pet.ScreenCapture.shizukuAvailable()) {
-                                            rikka.shizuku.Shizuku.requestPermission(0x5A11)
-                                            vm.toast = "已发起授权，请在弹出的窗口里允许"
-                                        } else vm.toast = "先安装并启动 Shizuku"
-                                    }
-                                }) { Text("授权") }
-                            },
-                        )
-                    }
-                    if (pickShot) {
-                        androidx.compose.material3.AlertDialog(
-                            onDismissRequest = { pickShot = false },
-                            title = { Text("识屏方式") },
-                            text = {
-                                Column {
-                                    Text("共享屏幕：用「开始录制」授权，稳定但要每次授权",
-                                        style = Ty.caption, color = T.textFaint)
-                                    Text("ADB：走 Shizuku 权限截图，不弹录屏框，但要装 Shizuku",
-                                        style = Ty.caption, color = T.textFaint)
-                                    androidx.compose.foundation.layout.Spacer(Modifier.height(D.s2))
-                                    listOf("auto" to "自动（优先 ADB）", "adb" to "ADB（Shizuku）", "projection" to "共享屏幕").forEach { (k, label) ->
-                                        Row(
-                                            Modifier.fillMaxWidth()
-                                                .clickable {
-                                                    prefsCfg.edit().putString("shot_mode", k).commit()
-                                                    shotMode = k
-                                                    pickShot = false
-                                                    if (k == "adb" && !app.zhiyi.pet.ScreenCapture.shizukuReady() &&
-                                                        app.zhiyi.pet.ScreenCapture.shizukuAvailable()) {
-                                                        runCatching { rikka.shizuku.Shizuku.requestPermission(0x5A11) }
-                                                    }
-                                                }
-                                                .padding(vertical = D.s2),
-                                        ) {
-                                            Text(if (k == shotMode) "✓ $label" else "   $label")
+                                Toggle(cfg.petEnabled, { v ->
+                                    if (v && !android.provider.Settings.canDrawOverlays(ctx)) {
+                                        runCatching {
+                                            ctx.startActivity(
+                                                android.content.Intent(
+                                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    android.net.Uri.parse("package:${ctx.packageName}")
+                                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            )
                                         }
+                                        vm.toast = "请先允许「显示在其他应用上层」，再回来打开"
+                                    } else {
+                                        vm.saveCfg(cfg.copy(petEnabled = v))
                                     }
-                                }
-                            },
-                            confirmButton = {
-                                androidx.compose.material3.TextButton(onClick = { pickShot = false }) { Text("关闭") }
-                            },
-                        )
-                    }
-                    var skins by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(app.zhiyi.pet.PetSkin.list(ctx)) }
-                    var curSkin by androidx.compose.runtime.remember {
-                        androidx.compose.runtime.mutableStateOf(
-                            prefsCfg.getString("pet_skin", app.zhiyi.pet.PetSkin.BUILTIN) ?: app.zhiyi.pet.PetSkin.BUILTIN
-                        )
-                    }
-                    var pending by androidx.compose.runtime.remember {
-                        androidx.compose.runtime.mutableStateOf<List<Pair<android.net.Uri, String>>>(emptyList())
-                    }
-                    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-                        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
-                    ) { uris ->
-                        if (uris.isNotEmpty()) {
-                            pending = uris.map { u ->
-                                val nm = runCatching {
-                                    ctx.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                                        if (c.moveToFirst()) c.getString(0) else null
-                                    }
-                                }.getOrNull() ?: (u.lastPathSegment ?: "")
-                                u to app.zhiyi.pet.PetSkin.guessFace(nm)
-                            }
-                        }
-                    }
-                    var bindSkin by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-                    skins.forEach { sk ->
-                        val boundName = vm.personas.firstOrNull { it.id == sk.personaId }?.name
-                        SettingRow(
-                            sk.name,
-                            when {
-                                sk.keywords.isNotEmpty() -> sk.keywords.take(3).joinToString("·")
-                                sk.id == curSkin -> "使用中"
-                                boundName != null -> "绑定：$boundName"
-                                else -> "点击切换"
-                            },
-                            trailing = {
-                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                    if (sk.id == curSkin) Text("✓", color = T.accent)
-                                    androidx.compose.material3.TextButton(
-                                        onClick = { bindSkin = sk.id },
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = D.s2),
-                                    ) { Text("绑定", style = Ty.caption) }
-                                }
-                            },
-                            modifier = Modifier.clickable {
-                                prefsCfg.edit().putString("pet_skin", sk.id).apply()
-                                curSkin = sk.id
-                                if (prefsCfg.getBoolean("pet_on", false)) {
-                                    runCatching { app.zhiyi.pet.PetService.reload(ctx) }
-                                }
+                                })
                             },
                         )
                         InnerDivider()
-                    }
-                    if (pending.isNotEmpty()) {
-                        androidx.compose.material3.AlertDialog(
-                            onDismissRequest = { pending = emptyList() },
-                            title = { Text("给每张图指定表情") },
-                            text = {
-                                Column(Modifier.heightIn(max = 320.dp)) {
-                                    Text("点右侧表情可循环切换", style = Ty.caption, color = T.textFaint)
-                                    pending.forEachIndexed { i, (u, face) ->
-                                        Row(
-                                            Modifier.fillMaxWidth().padding(vertical = D.s1),
-                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                                        ) {
-                                            Text(
-                                                (u.lastPathSegment ?: "").takeLast(14),
-                                                style = Ty.caption, color = T.textFaint,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                            androidx.compose.material3.TextButton(onClick = {
-                                                val idx = app.zhiyi.pet.PetSkin.FACES.indexOf(face)
-                                                val next = app.zhiyi.pet.PetSkin.FACES[(idx + 1) % app.zhiyi.pet.PetSkin.FACES.size]
-                                                pending = pending.toMutableList().also { it[i] = u to next }
-                                            }) { Text(face) }
-                                        }
-                                    }
-                                }
+                        Text(
+                            "她会以像素形象坐在桌面上，可自由拖动。需要「显示在其他应用上层」权限。",
+                            style = Ty.caption, color = T.textFaint,
+                            modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
+                        )
+                        InnerDivider()
+                        val prefsCfg = ctx.getSharedPreferences("cfg", android.content.Context.MODE_PRIVATE)
+                        var shotMode by androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf(prefsCfg.getString("shot_mode", "projection") ?: "projection")
+                        }
+                        var shizukuOk by androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf(app.zhiyi.pet.ScreenCapture.shizukuReady())
+                        }
+                        var pickShot by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+                        SettingRow(
+                            "识屏方式",
+                            when {
+                                shotMode == "auto" -> "自动（优先 ADB）"
+                                shotMode == "adb" -> if (shizukuOk) "ADB（已授权）" else "ADB（未授权）"
+                                else -> "共享屏幕（录屏授权）"
                             },
-                            confirmButton = {
-                                androidx.compose.material3.TextButton(onClick = {
-                                    val list = pending
-                                    pending = emptyList()
-                                    app.zhiyi.pet.PetSkin.importMapped(
-                                        ctx,
-                                        "皮肤 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date()),
-                                        "", list,
-                                    )
-                                    skins = app.zhiyi.pet.PetSkin.list(ctx)
-                                    vm.toast = "皮肤已导入（${list.size} 张）"
-                                }) { Text("导入") }
-                            },
-                            dismissButton = {
-                                androidx.compose.material3.TextButton(onClick = { pending = emptyList() }) { Text("取消") }
+                            trailing = {
+                                androidx.compose.material3.TextButton(onClick = { pickShot = true }) { Text("切换") }
                             },
                         )
-                    }
+                        if (shotMode == "adb" && !shizukuOk) {
+                            SettingRow(
+                                "授权 ADB",
+                                if (app.zhiyi.pet.ScreenCapture.shizukuAvailable()) "点右侧申请 Shizuku 权限"
+                                else "还没装 Shizuku（或没启动）",
+                                trailing = {
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        runCatching {
+                                            if (app.zhiyi.pet.ScreenCapture.shizukuAvailable()) {
+                                                rikka.shizuku.Shizuku.requestPermission(0x5A11)
+                                                vm.toast = "已发起授权，请在弹出的窗口里允许"
+                                            } else vm.toast = "先安装并启动 Shizuku"
+                                        }
+                                    }) { Text("授权") }
+                                },
+                            )
+                        }
+                        if (pickShot) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { pickShot = false },
+                                title = { Text("识屏方式") },
+                                text = {
+                                    Column(Modifier.animateItem()) {
+                                        Text("共享屏幕：用「开始录制」授权，稳定但要每次授权",
+                                            style = Ty.caption, color = T.textFaint)
+                                        Text("ADB：走 Shizuku 权限截图，不弹录屏框，但要装 Shizuku",
+                                            style = Ty.caption, color = T.textFaint)
+                                        androidx.compose.foundation.layout.Spacer(Modifier.height(D.s2))
+                                        listOf("auto" to "自动（优先 ADB）", "adb" to "ADB（Shizuku）", "projection" to "共享屏幕").forEach { (k, label) ->
+                                            Row(
+                                                Modifier.fillMaxWidth()
+                                                    .clickable {
+                                                        prefsCfg.edit().putString("shot_mode", k).commit()
+                                                        shotMode = k
+                                                        pickShot = false
+                                                        if (k == "adb" && !app.zhiyi.pet.ScreenCapture.shizukuReady() &&
+                                                            app.zhiyi.pet.ScreenCapture.shizukuAvailable()) {
+                                                            runCatching { rikka.shizuku.Shizuku.requestPermission(0x5A11) }
+                                                        }
+                                                    }
+                                                    .padding(vertical = D.s2),
+                                            ) {
+                                                Text(if (k == shotMode) "✓ $label" else "   $label")
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(onClick = { pickShot = false }) { Text("关闭") }
+                                },
+                            )
+                        }
+                        var skins by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(app.zhiyi.pet.PetSkin.list(ctx)) }
+                        var curSkin by androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf(
+                                prefsCfg.getString("pet_skin", app.zhiyi.pet.PetSkin.BUILTIN) ?: app.zhiyi.pet.PetSkin.BUILTIN
+                            )
+                        }
+                        var pending by androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf<List<Pair<android.net.Uri, String>>>(emptyList())
+                        }
+                        val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                            androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+                        ) { uris ->
+                            if (uris.isNotEmpty()) {
+                                pending = uris.map { u ->
+                                    val nm = runCatching {
+                                        ctx.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                                            if (c.moveToFirst()) c.getString(0) else null
+                                        }
+                                    }.getOrNull() ?: (u.lastPathSegment ?: "")
+                                    u to app.zhiyi.pet.PetSkin.guessFace(nm)
+                                }
+                            }
+                        }
+                        var bindSkin by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+                        skins.forEach { sk ->
+                            val boundName = vm.personas.firstOrNull { it.id == sk.personaId }?.name
+                            SettingRow(
+                                sk.name,
+                                when {
+                                    sk.keywords.isNotEmpty() -> sk.keywords.take(3).joinToString("·")
+                                    sk.id == curSkin -> "使用中"
+                                    boundName != null -> "绑定：$boundName"
+                                    else -> "点击切换"
+                                },
+                                trailing = {
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        if (sk.id == curSkin) Text("✓", color = T.accent)
+                                        androidx.compose.material3.TextButton(
+                                            onClick = { bindSkin = sk.id },
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = D.s2),
+                                        ) { Text("绑定", style = Ty.caption) }
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    prefsCfg.edit().putString("pet_skin", sk.id).apply()
+                                    curSkin = sk.id
+                                    if (prefsCfg.getBoolean("pet_on", false)) {
+                                        runCatching { app.zhiyi.pet.PetService.reload(ctx) }
+                                    }
+                                },
+                            )
+                            InnerDivider()
+                        }
+                        if (pending.isNotEmpty()) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { pending = emptyList() },
+                                title = { Text("给每张图指定表情") },
+                                text = {
+                                    Column(Modifier.heightIn(max = 320.dp)) {
+                                        Text("点右侧表情可循环切换", style = Ty.caption, color = T.textFaint)
+                                        pending.forEachIndexed { i, (u, face) ->
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(vertical = D.s1),
+                                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    (u.lastPathSegment ?: "").takeLast(14),
+                                                    style = Ty.caption, color = T.textFaint,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                androidx.compose.material3.TextButton(onClick = {
+                                                    val idx = app.zhiyi.pet.PetSkin.FACES.indexOf(face)
+                                                    val next = app.zhiyi.pet.PetSkin.FACES[(idx + 1) % app.zhiyi.pet.PetSkin.FACES.size]
+                                                    pending = pending.toMutableList().also { it[i] = u to next }
+                                                }) { Text(face) }
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        val list = pending
+                                        pending = emptyList()
+                                        app.zhiyi.pet.PetSkin.importMapped(
+                                            ctx,
+                                            "皮肤 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date()),
+                                            "", list,
+                                        )
+                                        skins = app.zhiyi.pet.PetSkin.list(ctx)
+                                        vm.toast = "皮肤已导入（${list.size} 张）"
+                                    }) { Text("导入") }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(onClick = { pending = emptyList() }) { Text("取消") }
+                                },
+                            )
+                        }
 
-                    bindSkin?.let { sid ->
-                        androidx.compose.material3.AlertDialog(
-                            onDismissRequest = { bindSkin = null },
-                            title = { Text("绑定到哪个人格") },
-                            text = {
-                                Column {
-                                    Text("不绑定 = 跟随当前人格", style = Ty.caption, color = T.textFaint)
-                                    vm.personas.forEach { p ->
+                        bindSkin?.let { sid ->
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { bindSkin = null },
+                                title = { Text("绑定到哪个人格") },
+                                text = {
+                                    Column(Modifier.animateItem()) {
+                                        Text("不绑定 = 跟随当前人格", style = Ty.caption, color = T.textFaint)
+                                        vm.personas.forEach { p ->
+                                            Row(
+                                                Modifier.fillMaxWidth()
+                                                    .clickable {
+                                                        app.zhiyi.pet.PetSkin.setPersona(ctx, sid, p.id)
+                                                        skins = app.zhiyi.pet.PetSkin.list(ctx)
+                                                        bindSkin = null
+                                                        if (prefsCfg.getBoolean("pet_on", false))
+                                                            runCatching { app.zhiyi.pet.PetService.reload(ctx) }
+                                                    }
+                                                    .padding(vertical = D.s2),
+                                            ) { Text(p.name) }
+                                        }
                                         Row(
                                             Modifier.fillMaxWidth()
                                                 .clickable {
-                                                    app.zhiyi.pet.PetSkin.setPersona(ctx, sid, p.id)
+                                                    app.zhiyi.pet.PetSkin.setPersona(ctx, sid, "")
                                                     skins = app.zhiyi.pet.PetSkin.list(ctx)
                                                     bindSkin = null
-                                                    if (prefsCfg.getBoolean("pet_on", false))
-                                                        runCatching { app.zhiyi.pet.PetService.reload(ctx) }
                                                 }
                                                 .padding(vertical = D.s2),
-                                        ) { Text(p.name) }
+                                        ) { Text("不绑定", color = T.textFaint) }
                                     }
-                                    Row(
-                                        Modifier.fillMaxWidth()
-                                            .clickable {
-                                                app.zhiyi.pet.PetSkin.setPersona(ctx, sid, "")
-                                                skins = app.zhiyi.pet.PetSkin.list(ctx)
-                                                bindSkin = null
-                                            }
-                                            .padding(vertical = D.s2),
-                                    ) { Text("不绑定", color = T.textFaint) }
-                                }
-                            },
-                            confirmButton = {
-                                androidx.compose.material3.TextButton(onClick = { bindSkin = null }) { Text("关闭") }
+                                },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(onClick = { bindSkin = null }) { Text("关闭") }
+                                },
+                            )
+                        }
+                        SettingRow(
+                            "导入皮肤",
+                            "选一组 PNG，文件名含 calm/happy/sad…",
+                            trailing = {
+                                androidx.compose.material3.TextButton(onClick = { importLauncher.launch(arrayOf("image/*")) }) { Text("选择") }
                             },
                         )
                     }
-                    SettingRow(
-                        "导入皮肤",
-                        "选一组 PNG，文件名含 calm/happy/sad…",
-                        trailing = {
-                            androidx.compose.material3.TextButton(onClick = { importLauncher.launch(arrayOf("image/*")) }) { Text("选择") }
-                        },
-                    )
                 }
             }
         }
@@ -898,60 +847,78 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                 }
 
         collapsible("conn", "连接", "模型 API · 环境变量 · 本地存储", "conn" in openGroups, { toggleGroup("conn") }) {
-        Column {
-            Label("接入模型", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column {
-                    vm.providers.forEachIndexed { i, p ->
+        item("qq", contentType = "qq") {
+            Column(Modifier.animateItem()) {
+                Label("QQ", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SettingRow(
+                            "QQ 机器人",
+                            if (app.zhiyi.qq.QqBot.anyRunning()) app.zhiyi.qq.QqBot.summary(ctx)
+                            else "在 QQ 里和她聊天（官方接口，不需要公网）",
+                            onClick = onOpenQq,
+                        )
+                    }
+                }
+            }
+        }
+
+        item("api", contentType = "api") {
+            Column(Modifier.animateItem()) {
+                Label("接入模型", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.animateItem()) {
+                        vm.providers.forEachIndexed { i, p ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { vm.activateProvider(p.id) }
+                                    .padding(horizontal = D.s4, vertical = D.s3),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier.size(18.dp).clip(CircleShape)
+                                        .background(if (p.id == vm.activeProvider?.id) T.accent else T.track),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (p.id == vm.activeProvider?.id)
+                                        Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
+                                }
+                                Spacer(Modifier.width(D.s3))
+                                Column(Modifier.weight(1f)) {
+                                    Text(p.name, style = Ty.bodySm, color = T.text)
+                                    Text(
+                                        "${p.chatModel}  ·  ${p.base.replace("https://", "")}",
+                                        style = Ty.caption, color = T.textFaint,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text("编辑", style = Ty.caption, color = T.textDim,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(T.hi2)
+                                        .border(1.dp, T.handle, CircleShape)
+                                        .clickable { editing = p; showProvider = true }
+                                        .padding(horizontal = D.s3, vertical = D.s1))
+                                Spacer(Modifier.width(D.s2))
+                                Text("删除", style = Ty.caption, color = T.danger,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(T.dangerTint)
+                                        .border(1.dp, T.danger.copy(alpha = 0.4f), CircleShape)
+                                        .clickable { vm.deleteProvider(p.id) }
+                                        .padding(horizontal = D.s3, vertical = D.s1))
+                            }
+                            if (i != vm.providers.lastIndex) InnerDivider()
+                        }
+                        InnerDivider(start = 0.dp)
                         Row(
-                            Modifier.fillMaxWidth().clickable { vm.activateProvider(p.id) }
-                                .padding(horizontal = D.s4, vertical = D.s3),
+                            Modifier.fillMaxWidth().clickable { editing = null; showProvider = true }
+                                .padding(horizontal = D.s4, vertical = D.s4),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(
-                                Modifier.size(18.dp).clip(CircleShape)
-                                    .background(if (p.id == vm.activeProvider?.id) T.accent else T.track),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (p.id == vm.activeProvider?.id)
-                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
-                            }
+                            IconChip { GlyphPlus(T.accent, 14.dp) }
                             Spacer(Modifier.width(D.s3))
-                            Column(Modifier.weight(1f)) {
-                                Text(p.name, style = Ty.bodySm, color = T.text)
-                                Text(
-                                    "${p.chatModel}  ·  ${p.base.replace("https://", "")}",
-                                    style = Ty.caption, color = T.textFaint,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Text("编辑", style = Ty.caption, color = T.textDim,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(T.hi2)
-                                    .border(1.dp, T.handle, CircleShape)
-                                    .clickable { editing = p; showProvider = true }
-                                    .padding(horizontal = D.s3, vertical = D.s1))
-                            Spacer(Modifier.width(D.s2))
-                            Text("删除", style = Ty.caption, color = T.danger,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(T.dangerTint)
-                                    .border(1.dp, T.danger.copy(alpha = 0.4f), CircleShape)
-                                    .clickable { vm.deleteProvider(p.id) }
-                                    .padding(horizontal = D.s3, vertical = D.s1))
+                            Text("接入新的 API", style = Ty.bodySm, color = T.accent)
                         }
-                        if (i != vm.providers.lastIndex) InnerDivider()
-                    }
-                    InnerDivider(start = 0.dp)
-                    Row(
-                        Modifier.fillMaxWidth().clickable { editing = null; showProvider = true }
-                            .padding(horizontal = D.s4, vertical = D.s4),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconChip { GlyphPlus(T.accent, 14.dp) }
-                        Spacer(Modifier.width(D.s3))
-                        Text("接入新的 API", style = Ty.bodySm, color = T.accent)
                     }
                 }
             }
@@ -959,57 +926,55 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
 
         // ---------------- 人格 ----------------
 
-        Column {
-            Label("环境感知", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SettingRow(
-                        "所在城市",
-                        if (weatherNow.isBlank()) "填了就按天气调整语气" else weatherNow,
-                        trailing = {
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = city, onValueChange = { city = it },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .width(130.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(T.hi2)
-                                    .padding(horizontal = D.s2, vertical = D.s1),
-                                textStyle = Ty.bodySm.copy(color = T.text),
-                            )
-                        },
-                    )
-                    InnerDivider()
-                    Text(
-                        "立即刷新天气",
-                        style = Ty.bodySm, color = T.accent,
-                        modifier = Modifier
-                            .clickable { fetchWeather() }
-                            .padding(horizontal = D.s4, vertical = D.s2),
-                    )
+        item("env", contentType = "env") {
+            Column(Modifier.animateItem()) {
+                Label("环境感知", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SettingRow(
+                            "所在城市",
+                            if (weatherNow.isBlank()) "填了就按天气调整语气" else weatherNow,
+                            trailing = {
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = city, onValueChange = { city = it },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .width(130.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(T.hi2)
+                                        .padding(horizontal = D.s2, vertical = D.s1),
+                                    textStyle = Ty.bodySm.copy(color = T.text),
+                                )
+                            },
+                        )
+                        InnerDivider()
+                        Text(
+                            "立即刷新天气",
+                            style = Ty.bodySm, color = T.accent,
+                            modifier = Modifier
+                                .clickable { fetchWeather() }
+                                .padding(horizontal = D.s4, vertical = D.s2),
+                        )
+                    }
                 }
             }
         }
 
-        Column {
-            Label("存储", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    // 原来的「清理缓存 / 清缓存+清空表情」全部并入「清理空间」，
-                    // 免得同一件事有两个入口、以后改了这里忘那里
-                    SettingRow(
-                        "清理空间",
-                        "占用 ${app.zhiyi.data.CleanStore.human(app.zhiyi.data.CleanStore.dirBytes(ctx.cacheDir))} 缓存 · " +
-                            "记忆、声音、立绘按人格分开删",
-                        onClick = onOpenClean,
-                    )
-                    InnerDivider()
-                    SettingRow(
-                        "QQ 机器人",
-                        if (app.zhiyi.qq.QqBot.anyRunning()) app.zhiyi.qq.QqBot.summary(ctx)
-                        else "在 QQ 里和她聊天（官方接口，不需要公网）",
-                        onClick = onOpenQq,
-                    )
+        item("storage", contentType = "storage") {
+            Column(Modifier.animateItem()) {
+                Label("存储", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        // 原来的「清理缓存 / 清缓存+清空表情」全部并入「清理空间」，
+                        // 免得同一件事有两个入口、以后改了这里忘那里
+                        SettingRow(
+                            "清理空间",
+                            "占用 ${app.zhiyi.data.CleanStore.human(app.zhiyi.data.CleanStore.dirBytes(ctx.cacheDir))} 缓存 · " +
+                                "记忆、声音、立绘按人格分开删",
+                            onClick = onOpenClean,
+                        )
+
+                    }
                 }
             }
         }
@@ -1017,70 +982,48 @@ fun SettingsScreen(vm: AppVm, onOpenWorld: (String) -> Unit = {}, onOpenClean: (
                 }
 
         collapsible("data", "数据与关于", "备份恢复 · 关于", "data" in openGroups, { toggleGroup("data") }) {
-        Column {
-            Label("备份与恢复", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(vertical = D.s1)) {
-                    SettingRow("导出备份", "所有数据打成一个 JSON 文件", value = "导出",
-                        onClick = { exportBackup.launch("zhiyi-backup.json") })
-                    InnerDivider()
-                    SettingRow("导入备份", "从 JSON 恢复（会覆盖现有数据）", value = "导入",
-                        onClick = { importBackup.launch(arrayOf("application/json")) })
-                    InnerDivider()
-                    Text(
-                        "备份含人格、世界观、聊天记录、记忆、日记、API 配置。导出文件里带 API Key，别随便分享。",
-                        style = Ty.caption, color = T.textFaint,
-                        modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
-                    )
+        item("backup", contentType = "backup") {
+            Column(Modifier.animateItem()) {
+                Label("备份与恢复", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = D.s1)) {
+                        SettingRow("导出备份", "所有数据打成一个 JSON 文件", value = "导出",
+                            onClick = { exportBackup.launch("zhiyi-backup.json") })
+                        InnerDivider()
+                        SettingRow("导入备份", "从 JSON 恢复（会覆盖现有数据）", value = "导入",
+                            onClick = { importBackup.launch(arrayOf("application/json")) })
+                        InnerDivider()
+                        Text(
+                            "备份含人格、世界观、聊天记录、记忆、日记、API 配置。导出文件里带 API Key，别随便分享。",
+                            style = Ty.caption, color = T.textFaint,
+                            modifier = Modifier.padding(horizontal = D.s4, vertical = D.s2),
+                        )
+                    }
                 }
             }
         }
 
-        Column {
-            Label("关于", Modifier.padding(start = D.s4, bottom = D.s2))
-            GlassCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(D.s4)) {
-                    val verName = remember {
-                        runCatching {
-                            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
-                        }.getOrNull() ?: "?"
-                    }
-                    val verCode = remember {
-                        runCatching {
-                            val i = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-                            @Suppress("DEPRECATION") i.versionCode
-                        }.getOrNull() ?: 0
-                    }
-                    Text("知忆 $verName", style = Ty.title3, color = T.text)
-                    Text(
-                        "构建 $verCode · 本地优先，数据只在这台手机上",
-                        style = Ty.caption, color = T.textFaint
-                    )
-                    Spacer(Modifier.height(D.s3))
-                    // 点了直接开浏览器，省得自己搜仓库名
-                    val uri = androidx.compose.ui.platform.LocalUriHandler.current
-                    SettingRow(
-                        "GitHub",
-                        "源码与更新日志",
-                        value = "打开",
-                        onClick = {
-                            runCatching { uri.openUri("https://github.com/hesanyue50-lang/zhiyi") }
-                        },
-                    )
-                    if (vm.daysTogether > 0) {
+        item("about", contentType = "about") {
+            Column(Modifier.animateItem()) {
+                Label("关于", Modifier.padding(start = D.s4, bottom = D.s2))
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(D.s4)) {
+                        Text("知忆 7.9", style = Ty.title3, color = T.text)
+                        if (vm.daysTogether > 0) {
+                            Spacer(Modifier.height(D.s1))
+                            Text(
+                                "和她相识第 ${vm.daysTogether} 天",
+                                style = Ty.caption, color = T.textDim,
+                            )
+                        }
                         Spacer(Modifier.height(D.s1))
                         Text(
-                            "和她相识第 ${vm.daysTogether} 天",
+                            "分层记忆：最近对话 → 滚动摘要 → 结构化事实 → 事件回忆（向量召回）→ 人格锚点。" +
+                                "每轮生成前按 token 预算重新拼一次上下文，所以能聊很久还不崩人设。\n\n" +
+                                "数据只存在本机 zhiyi.db。换手机前记得备份。",
                             style = Ty.caption, color = T.textDim,
                         )
                     }
-                    Spacer(Modifier.height(D.s1))
-                    Text(
-                        "分层记忆：最近对话 → 滚动摘要 → 结构化事实 → 事件回忆（向量召回）→ 人格锚点。" +
-                            "每轮生成前按 token 预算重新拼一次上下文，所以能聊很久还不崩人设。\n\n" +
-                            "数据只存在本机 zhiyi.db。换手机前记得备份。",
-                        style = Ty.caption, color = T.textDim,
-                    )
                 }
             }
         }
