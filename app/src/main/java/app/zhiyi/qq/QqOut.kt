@@ -52,7 +52,8 @@ object QqOut {
         val db = Db.get(ctx)
         val acc = accountFor(db, pid) ?: return false
         val openId = QqCommand.openIdFor(db, acc.appId, pid, group = false)
-        if (blocked(db, pid, openId)) return false
+        // 黑名单是按私聊的人算的，群主动时不该拿它来挡
+        if (!acc.groupProactive && blocked(db, pid, openId)) return false
 
         val p = runCatching { db.persona(pid) }.getOrNull()
         val pre = p?.sayPrefix?.ifBlank { "「" } ?: "「"
@@ -67,9 +68,11 @@ object QqOut {
                 val g = acc.groups.random()
                 return try {
                     QqApi.sendGroup(ctx, acc, g, speech.take(400), msgId = null)
+                    QqLog.add(ctx, acc.appId, "群主动", g, true)
                     db.putNum("qq_last_proactive_ts", System.currentTimeMillis())
                     true
                 } catch (e: Throwable) {
+                    QqLog.add(ctx, acc.appId, "群主动", g, false, e.message ?: "")
                     QqBot.lastError = "群里主动发话失败：${e.message ?: e.javaClass.simpleName}"
                     false
                 }
@@ -78,9 +81,11 @@ object QqOut {
 
         return try {
             QqApi.sendC2C(ctx, acc, openId, speech.take(400), msgId = null)
+            QqLog.add(ctx, acc.appId, "私聊主动", openId, true)
             db.putNum("qq_last_proactive_ts", System.currentTimeMillis())
             true
         } catch (e: Throwable) {
+            QqLog.add(ctx, acc.appId, "私聊主动", openId, false, e.message ?: "")
             // 常见原因：用户在 QQ 资料卡关了「允许主动发送」、当天额度用完、token 过期
             QqBot.lastError = "主动发话没发出去：${e.message ?: e.javaClass.simpleName}"
             false
